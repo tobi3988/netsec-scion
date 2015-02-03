@@ -1,1 +1,25 @@
-This is the readme file of the DNS implementation.
+####################
+README- DNS	 	
+####################
+
+authoritative_resolver.py
+--------------------------
+Contains the resolver for the authoritative server.
+The authoritative resolver is responsible for his zone and answers queries
+with the matching data.
+
+dummy_client.py
+-----------------
+A client sending queries to the server and printing the answers.
+
+
+dnslib9.0.1
+---------------
+DNSlib is a simple library allowing to encode/decode DNS wire-format packets.
+It supports 3.2+ python.
+
+****/!\ **** I had to change the encoding in dnslib.dns
+	RD class, __init__() 
+--  changes to handle the bytes/str with respect to python 3.4
+
+
