@@ -19,7 +19,7 @@ limitations under the License.
 import time
 
 from dnslib.server import BaseResolver, DNSServer
-from dnslib.dns import QTYPE, A, RR, TXT, RCODE
+from dnslib.dns import QTYPE, A, RR, RCODE
 
 
 ZONE={
@@ -46,7 +46,6 @@ class Resolver(BaseResolver):
         if label in self.zone:
             if  qtype == 'A':
                 ip_address, isd_ad = self.zone[label]
-                msg= "%s::%s::%s"%(label, ip_address, isd_ad)
                 reply.add_answer(RR(qname, QTYPE.A, rdata= A(ip_address)))
             elif qtype == 'CNAME':
                 print(self.zone[label])
@@ -92,7 +91,7 @@ def main():
     Main function.
     """
 
-    ip_address = "192.33.93.140"
+    ip_address = "192.168.0.11"
     listening_port = 9999
     dns_server = AuthoritativeServer(ip_address, listening_port)
     dns_server.startDNSResolver()
