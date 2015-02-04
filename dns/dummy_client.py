@@ -21,11 +21,11 @@ def main():
     """
     Main function.
     """
-    port_number= 9999
-    server_address = "192.168.0.11"
+    port_number= 8888
+    server_address = "192.33.93.140"
 
     #Note that the last "." (root) is automatically added here.
-    request_packet = DNSRecord.question("domain1.ch", "A", "IN")
+    request_packet = DNSRecord.question("domain1.us", "A", "IN")
     reply_packet = request_packet.send(server_address, port_number)
     reply = DNSRecord.parse(reply_packet)
     print("A record reply for existing domain1.ch.:")
@@ -36,6 +36,10 @@ def main():
     nx_reply= DNSRecord.parse(nx_reply_packet)
     print("\n\nReply for non existing domain:")
     print(nx_reply)
+
+    cname_request_packet = DNSRecord.question("domain1.nl", "CNAME", "IN")
+    cname_reply_packet = cname_request_packet.send(server_address, port_number)
+    cname_reply = DNSRecord.parse(cname_reply_packet)
     
 if __name__ == "__main__":
     main()

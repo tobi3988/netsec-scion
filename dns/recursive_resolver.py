@@ -15,66 +15,58 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-
+from dnslib.server import DNSServer, BaseResolver
+from dnslib.dns import QTYPE, RCODE
+from dnslib.label import DNSLabel
 import time
 
-from dnslib.server import BaseResolver, DNSServer
-from dnslib.dns import QTYPE, A, RR, RCODE
 
 ZONE={
+      
       "domain1.ch.":("111.222.123.234","1,7"),
     }
-
 class Resolver(BaseResolver):
-    """
-    Packet handler.
-
-    Resolves the incoming packet and gives the appropriate answer.
-    """
+    
     def __init__(self,zone):
         self.zone=zone
-
     def resolve(self, request, handler):
-        """
-        Resolves the incoming queries.
-        """
+        swiss_suffix = "ch."
+        us_suffix = "us."
         reply = request.reply()
         qname = request.q.qname
         qtype = QTYPE[request.q.qtype]
-        label = str(qname)
-        if label in self.zone:
-            if  qtype == 'A':
-                ip_address, isd_ad = self.zone[label]
-                reply.add_answer(RR(qname, QTYPE.A, rdata= A(ip_address)))
-            elif qtype == 'CNAME':
-                print(self.zone[label])
+        label = DNSLabel(str(qname))
+        if label.matchSuffix(swiss_suffix):
+            print("Looking for a swiss domain.")
+            #todo: implement the logic here.
+        elif label.matchSuffix(us_suffix):
+            print("Looking for us domain.")
+            #todo: implement the logic here.
         else:
-            print("The requested domain is not known. "
-                      + " Sending a NXDOMAIN packet as answer.")
-            reply.header.rcode = getattr(RCODE, 'NXDOMAIN')
+            print("This country does not exist")
+            reply.header.rcode = getattr(RCODE, 'NOTZONE')
         return reply
-
-class AuthoritativeServer():
+    
+class RecursiveServer():
     """
-    THE SCION Authoritative Server.
+    THE SCION Recursive Resolver.
 
-    The authoritative server receives the client query and
-    answers with the matching response.
+    The recursive resolver performs the requests for the clients and eventually
+    returns the final answer to the latter.
     """
     def __init__(self, ip_address, listening_port):
         self.ip_address = ip_address
         self.listening_port = listening_port
 
-    def startDNSResolver(self):
+    def startRecursiveServer(self):
         resolver = Resolver(ZONE)
-
-        udp_server = DNSServer(resolver, port= self.listening_port,
+        udp_server = DNSServer(resolver,  port= self.listening_port,
                                address= self.ip_address)
+
         udp_server.start_thread()
-        print("UDP server listening on port: " +
-            str(self.listening_port) +
-                " and address: " + str(self.ip_address))
-        
+        print("UDP Recursive Resolver listening on port: " +
+              str(self.listening_port) +
+             " and address: " + str(self.ip_address))
         try:
             while udp_server.isAlive():
                 time.sleep(1)
@@ -83,18 +75,18 @@ class AuthoritativeServer():
         finally:
             udp_server.stop()
             print("\n")
-            print("The UDP server was stopped.")
-
+            print("The UDP Recursive Resolver was stopped.") 
+                
+                
 def main():
     """
     Main function.
     """
-
     server_address = "192.33.93.140"
-    listening_port = 9999
-    dns_server = AuthoritativeServer(server_address, listening_port)
-    dns_server.startDNSResolver()
+    listening_port= 8888
+    
+    dns_server = RecursiveServer(server_address, listening_port)
+    dns_server.startRecursiveServer()
 
 if __name__ == "__main__":
     main()
-    
