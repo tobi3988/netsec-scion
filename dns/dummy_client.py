@@ -17,7 +17,6 @@ limitations under the License.
 """
 from dnslib.dns import DNSRecord
 
-
 def main():
     """
     Main function.
