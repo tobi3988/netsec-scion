@@ -25,7 +25,7 @@ def main():
     server_address = "192.33.93.140"
 
     #Note that the last "." (root) is automatically added here.
-    request_packet = DNSRecord.question("domain1.us", "A", "IN")
+    request_packet = DNSRecord.question("domain1.ch", "A", "IN")
     reply_packet = request_packet.send(server_address, port_number)
     reply = DNSRecord.parse(reply_packet)
     print("A record reply for existing domain1.ch.:")
@@ -40,7 +40,8 @@ def main():
     cname_request_packet = DNSRecord.question("domain1.nl", "CNAME", "IN")
     cname_reply_packet = cname_request_packet.send(server_address, port_number)
     cname_reply = DNSRecord.parse(cname_reply_packet)
-    
+    print("\n\nThe record for the CNAME command (domain1.nl): ")
+    print(cname_reply)
 if __name__ == "__main__":
     main()
     
