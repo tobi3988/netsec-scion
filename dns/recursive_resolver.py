@@ -111,11 +111,15 @@ class Resolver(BaseResolver):
                                             TLDSERVER[country_suffix], 9999)
         #Reply type: DNSRecord
         reply = DNSRecord.parse(reply_packet)
+        
+        """
+        TODO: if not _ is authoritative and < maxiter.
+        """
         if reply.header.get_qr():
             #If the answer is authoritative => we are done, else
             #we need to query the referred domain.
-            print(str(reply.header.get_aa()))
-            
+         
+            print("Reply to rec res: " + str(reply))
             #Does the answer contain the IP address.
             #If the type of answer is NS-> nope
             #  - But in additional section he should provide the address
@@ -146,6 +150,9 @@ class Resolver(BaseResolver):
                     (We should not allow out of bailiwick queries)
                 - CNAME referral
                     - need to re-query.
+        Comment: 
+        - First it looks in cache for the leftmost part, if not, cut and next one,
+        until root.
         """
     
         """
@@ -198,7 +205,7 @@ def main():
     """
     Main function.
     """
-    server_address = "192.33.93.140"
+    server_address = "192.168.0.11"
     listening_port= 8888
     
     dns_server = RecursiveServer(server_address, listening_port)
