@@ -21,11 +21,11 @@ def main():
     """
     Main function.
     """
-    port_number= 9999
+    port_number= 8888
     server_address = "192.168.0.11"
 
     #Note that the last "." (root) is automatically added here.
-    request_packet = DNSRecord.question("domain1.ch", "NS", "IN")
+    request_packet = DNSRecord.question("domain1.ch", "A", "IN")
     reply_packet = request_packet.send(server_address, port_number)
     reply = DNSRecord.parse(reply_packet)
     print("A record reply for existing domain1.ch.:")

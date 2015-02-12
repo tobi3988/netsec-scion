@@ -41,13 +41,16 @@ class Resolver(BaseResolver):
 
         for name, rtype, rr in self.zone:
             # Is the answer of the question in the configuration file?
-            if getattr(qname, self.eq)(name) and (qtype == rtype or 
-                                                 qtype == 'ANY' or 
-                                                 rtype == 'CNAME'):
-                if (qtype == 'NS'):
-                    reply.add_auth(rr)
-                else:
-                    reply.add_answer(rr)
+            if getattr(qname, self.eq)(name):
+                if (qtype == rtype or qtype == 'ANY' or rtype == 'CNAME'):
+                    if (qtype == 'NS'):
+                        reply.add_auth(rr)
+                    else:
+                        reply.add_answer(rr)
+                else: 
+                    if (rtype == 'NS'):
+                        reply.add_auth(rr)
+                        
                 # ADD address as additional record
                 if rtype in ['CNAME', 'NS', 'MX', 'PTR']:
                     for a_name, a_rtype, a_rr in self.zone:

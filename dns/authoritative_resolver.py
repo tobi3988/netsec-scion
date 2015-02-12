@@ -37,12 +37,12 @@ class Resolver(BaseResolver):
         reply = request.reply()
         qname = request.q.qname
         qtype = QTYPE[request.q.qtype]
-
+        is_nxdomain = True
         for name, rtype, rr in self.zone:
-            print(getattr(qname, self.eq)(name))
             if getattr(qname, self.eq)(name) and (qtype == rtype or 
                                                  qtype == 'ANY' or 
                                                  rtype == 'CNAME'):
+                is_nxdomain = False
                 if (qtype == 'NS'):
                     reply.add_auth(rr)
                 else:
@@ -51,9 +51,9 @@ class Resolver(BaseResolver):
                     for a_name, a_rtype, a_rr in self.zone:
                         if a_name == rr.rdata.label and (a_rtype in ['A', 'AAAA']):
                             reply.add_ar(a_rr)
-        if not reply.auth or not reply.ar:
-            print("The requested domain" + str(qname)
-                    + " is not known. " + " Sending a NXDOMAIN"
+        if is_nxdomain:
+            print("The requested domain: \"" + str(qname)
+                    + "\" is not known. " + " Sending a NXDOMAIN"
                     + " packet as answer.")
             reply.header.rcode = RCODE.NXDOMAIN
         return reply

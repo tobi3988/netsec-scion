@@ -17,27 +17,19 @@ limitations under the License.
 """
 from dnslib.server import DNSServer, BaseResolver
 from dnslib.dns import QTYPE, RCODE, DNSRecord, DNSError, CLASS
-from dnslib.label import DNSLabel
 from dnslib.bimap import Bimap
 
 import time
+import random
 
 
-
-ZONE={
-      
-      "domain1.ch.":("111.222.123.234","1,7"),
+ZONE = {
+      "domain1.ch.":("111.222.123.234", "1,7"),
     }
+# List of TLD nameservers.
 TLDSERVER = Bimap('TLD',
-                {'.ch':'192.33.93.140', '.us': "192.33.93.140"},
+                {'.ch':'192.168.0.11', '.us': "192.168.0.11"},
                 DNSError)
-#        swiss_suffix = "ch."
-#        swiss_ip = "192.33.93.140"
-#        swiss_port = "9876"
-        
-#        us_suffix = "us."
-#        us_ip = "192.33.93.140"
-#        us_port = "6789"
 
 class Toolbox():
     """
@@ -50,10 +42,10 @@ class Toolbox():
         """
         Is the provided label pointing towards the root?
         """
-        return len(label) > 0 and label[-1]=='.'
+        return len(label) > 0 and label[-1] == '.'
 
 
-    def split(self, label, depth = 3):
+    def split(self, label, depth=3):
         """
         Split the label into prefix and suffix at depth.
         
@@ -67,16 +59,21 @@ class Toolbox():
             return (None, label)
         elif depth < 0 or depth > length:
             raise ValueError('depth must be >= 0 and <= name length')
-        #we can delete the old root
-        label=  label[: -1]
-        return (label[: -depth]), (label[-depth :])
+        # we can delete the old root
+        label = label[:-1]
+        return (label[:-depth]), (label[-depth :])
  
 class Resolver(BaseResolver):
     
-    def __init__(self,zone):
-        self.zone=zone
-        
+    def __init__(self, zone):
+        self.zone = zone
+        self.eq = '__eq__'
     def resolve(self, request, handler):
+        
+        print("Key pair: ")
+        print(self.pk)
+        print(len(self.pk))
+        
         """
         The resolve method
         
@@ -84,49 +81,78 @@ class Resolver(BaseResolver):
         The recursive resolver gets the request from the stub resolver and
         performs the recursive resolution before to send the reply back.
         """
-        #helper to include in dnslib.
+        # TODO: helper to include in dnslib.
         helper = Toolbox()
 
-        #End user query
+        
         qname = request.q.qname
         qtype = QTYPE[request.q.qtype]
         qclass = CLASS[request.q.qclass]
-        #--------------
         
-        qname_to_resolve = []
-        if helper.is_root(str(qname)):
-            qname_to_resolve.append(str(qname))
-
-        #Query to forward
-        recursive_query = DNSRecord.question(qname, qtype, qclass)
-
-        is_authoritative = False
-
         _, country_suffix = helper.split(str(qname))
+        #Ip addresses of server to query.
         
-       # while not is_authoritative:
-        reply = request.reply()
-        #Transmit the packet to the TLD knowing the target location.
-        reply_packet = recursive_query.send(
-                                            TLDSERVER[country_suffix], 9999)
-        #Reply type: DNSRecord
-        reply = DNSRecord.parse(reply_packet)
+        try:
+            name_server= TLDSERVER[country_suffix]
+        except DNSError: 
+            reply = request.reply()
+            reply.header.rcode = RCODE.NXDOMAIN
+            return reply
         
-        """
-        TODO: if not _ is authoritative and < maxiter.
-        """
-        if reply.header.get_qr():
-            #If the answer is authoritative => we are done, else
-            #we need to query the referred domain.
-         
-            print("Reply to rec res: " + str(reply))
-            #Does the answer contain the IP address.
-            #If the type of answer is NS-> nope
-            #  - But in additional section he should provide the address
-            #    to avoid time loss.
+        
+        port = 11111
+        if helper.is_root(str(qname)):
             
-        else:
-            print("Why do we receive a question? Drop it.")
+            reply = None
+            is_address = False
+            is_answered = False
+
+            while not is_answered:              
+                # Query to forward
+                recursive_query = DNSRecord.question(qname, qtype, qclass)
+                
+                ns_reply_packet = recursive_query.send(name_server, port)
+                ns_reply = DNSRecord.parse(ns_reply_packet)
+               
+                # The recursive resolver is not supposed to obtain questions back.
+                if (ns_reply.header.get_qr()) :
+                    if QTYPE[request.q.qtype] in ['A', 'AAAA']:
+                        is_address = True
+                        if ns_reply.rr:
+                            reply = request.reply()
+                            for rr in ns_reply.rr:
+                                reply.add_answer(rr)
+                            is_answered = True
+                            return reply
+                    if ns_reply.auth:
+                        reply = request.reply()
+                        for rauth in ns_reply.auth:
+                            reply.add_auth(rauth)
+                        if ns_reply.ar: 
+                            for ar in ns_reply.ar:
+                                reply.add_ar(ar)
+                        if not is_address:
+                            is_answered = True
+                            return reply
+                        else: 
+                            random_auth_record = random.choice(reply.auth)
+                            auth_name = random_auth_record.rdata
+                            for ar in reply.ar:
+                                if str(auth_name) == ar.rname and QTYPE[ar.rtype] in ['A', 'AAAA']:
+                                    name_server = str(ar.rdata)
+                                else:
+                                    print("This case is out of scope.")
+                            
+                            port = 9999
+                    else:
+                        print("This case is out of scope.")
+                        break;
+                else:
+                    print("Why do we receive a question? Drop it.")
+        else :
+            print("Wrong domain format.")
+        reply = request.reply()
+        reply.header.rcode = RCODE.NXDOMAIN
 
         """
         PSEUDOCODE OF THE RECURSIVE RESOLVER: 
@@ -162,14 +188,14 @@ class Resolver(BaseResolver):
         """
         
         
-        #instead of comparing take the suffix but no method exists yet.
+        # instead of comparing take the suffix but no method exists yet.
         
         
     
         
         return reply
-        #print("This country does not exist")
-            #reply.header.rcode = getattr(RCODE, 'NOTZONE')
+        # print("This country does not exist")
+            # reply.header.rcode = getattr(RCODE, 'NOTZONE')
 class RecursiveServer():
     """
     THE SCION Recursive Resolver.
@@ -183,12 +209,12 @@ class RecursiveServer():
 
     def startRecursiveServer(self):
         resolver = Resolver(ZONE)
-        udp_server = DNSServer(resolver,  port= self.listening_port,
-                               address= self.ip_address)
+        udp_server = DNSServer(resolver, port=self.listening_port,
+                               address=self.ip_address)
 
         udp_server.start_thread()
-        print("UDP Recursive Resolver listening on port: " +
-              str(self.listening_port) +
+        print("UDP Recursive Resolver listening on port: " + 
+              str(self.listening_port) + 
              " and address: " + str(self.ip_address))
         try:
             while udp_server.isAlive():
@@ -206,7 +232,7 @@ def main():
     Main function.
     """
     server_address = "192.168.0.11"
-    listening_port= 8888
+    listening_port = 8888
     
     dns_server = RecursiveServer(server_address, listening_port)
     dns_server.startRecursiveServer()
