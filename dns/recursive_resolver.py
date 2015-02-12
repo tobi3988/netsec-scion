@@ -15,30 +15,48 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-from dnslib.server import DNSServer, BaseResolver
-from dnslib.dns import QTYPE, RCODE, DNSRecord, DNSError, CLASS, RR, TXT
+from dnslib.server import DNSServer
+from dnslib.server import BaseResolver
+from dnslib.dns import QTYPE
+from dnslib.dns import RCODE
+from dnslib.dns import DNSRecord
+from dnslib.dns import DNSError
+from dnslib.dns import CLASS
+from dnslib.dns import RR
+from dnslib.dns import TXT
+
 from dnslib.bimap import Bimap
+from lib.crypto import nacl
 
 import time
 import random
 import socket
-#import libnacl
 
 
-
+#TODO: Change-me
 ZONE = {
       "domain1.ch.":("111.222.123.234", "1,7"),
     }
+
 # List of TLD nameservers.
+#TODO: Include it in the config-file?
 TLDSERVER = Bimap('TLD',
                 {'.ch':'192.33.93.140', '.us': "192.33.93.140"},
                 DNSError)
 
+def generate_random_string(nb_char = 4):
+    """
+    Random string generator.
+
+    Generates a random string of 32-bit size.
+    """
+    return ''.join([chr(random.randint(0, 255)) for i in range(nb_char)])
+
 class Toolbox():
     """
-    The Utilities class
-    
-    This class provides some tools to help processing the requests. 
+    This is a temp class.
+
+    This class provides some tools to help processing the requests.
     Most of the tools should be eventually included in the dnslib library.
     """
     def is_root(self, label):
@@ -51,7 +69,7 @@ class Toolbox():
     def split(self, label, depth=3):
         """
         Split the label into prefix and suffix at depth.
-        
+
         returns tuple (prefix, suffix)
         works because ISO Country names = 2 char.
         """
@@ -65,13 +83,23 @@ class Toolbox():
         # we can delete the old root
         label = label[:-1]
         return (label[:-depth]), (label[-depth :])
- 
+
 class Resolver(BaseResolver):
+    """
+    The Resolver of the recursive server.
     
+    Implements the logic of the recursive resolver, standing
+    between the stub resolver and the name servers. It forwards
+    the request of the client and finally replies back.
+    """
     def __init__(self, zone):
         self.zone = zone
         self.eq = '__eq__'
- #       self.pk, self.sk = libnacl.crypto_sign_keypair()
+        # Curve: create 256-bit size pk-sk
+        self.pk, self.sk = nacl.crypto_box_curve25519xsalsa20poly1305_keypair()
+        # Random nonce of 96-bit size.
+        self.nonce = self.generate_nonce()
+
     def resolve(self, request, handler):
         
         """
@@ -84,9 +112,10 @@ class Resolver(BaseResolver):
         # TODO: helper to include in dnslib.
         helper = Toolbox()
 
-#      print("The nacl key pair: ")
-#     print("Public: " + self.pk)
-#    print("Private: " + self.sk)
+        print("The nacl key pair: ")
+        print("Public: " + str(len(self.pk)))
+        print("Private: " + str(len(self.sk)))
+        print("Nonce" + self.nonce)
         
         qname = request.q.qname
         qtype = QTYPE[request.q.qtype]
@@ -113,8 +142,7 @@ class Resolver(BaseResolver):
             start = time.time()
             
             while not is_answered:
-                timeout = self.request_time_out(start, 2)
-                print("timeout: " + str(timeout))              
+                timeout = self.request_time_out(start, 2)        
                 # Query to forward
                 recursive_query = DNSRecord.question(qname, qtype, qclass)
 
@@ -123,8 +151,8 @@ class Resolver(BaseResolver):
                 except socket.error:
                     ns_reply_packet = None
                     reply = request.reply()
-                    timeout_txt = "The request for: "+ name_server + " encountered a timeout."
-                    reply.add_ar(RR(qname,QTYPE.TXT,rdata=TXT(timeout_txt)))
+                    timeout_txt = "The request for: " + name_server + " encountered a timeout."
+                    reply.add_ar(RR(qname, QTYPE.TXT, rdata=TXT(timeout_txt)))
                     reply.header.rcode = RCODE.SERVFAIL
                     return reply
 
@@ -210,6 +238,17 @@ class Resolver(BaseResolver):
         - (optional) reduce insane ttl
         """ 
         return reply
+    
+    def generate_nonce(self, length=8):
+        """
+        Generates a nonce based on a 64-bit timestamp followed by a 32-bit random number.
+        
+        """
+        now = str(int(time.time()))
+        now = now[:length]
+        random_string = generate_random_string()
+        return now + random_string
+
     def request_time_out(self, start_time, limit_time):
         now_time = time.time()
         # Time can sometimes go a bit backward
