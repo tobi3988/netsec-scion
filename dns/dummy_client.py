@@ -22,7 +22,7 @@ def main():
     Main function.
     """
     port_number= 8888
-    server_address = "192.168.0.11"
+    server_address = "192.33.93.140"
 
     #Note that the last "." (root) is automatically added here.
     request_packet = DNSRecord.question("domain1.ch", "A", "IN")

@@ -16,11 +16,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 from dnslib.server import DNSServer, BaseResolver
-from dnslib.dns import QTYPE, RCODE, DNSRecord, DNSError, CLASS
+from dnslib.dns import QTYPE, RCODE, DNSRecord, DNSError, CLASS, RR, TXT
 from dnslib.bimap import Bimap
 
 import time
 import random
+import socket
+#import libnacl
+
 
 
 ZONE = {
@@ -28,7 +31,7 @@ ZONE = {
     }
 # List of TLD nameservers.
 TLDSERVER = Bimap('TLD',
-                {'.ch':'192.168.0.11', '.us': "192.168.0.11"},
+                {'.ch':'192.33.93.140', '.us': "192.33.93.140"},
                 DNSError)
 
 class Toolbox():
@@ -36,7 +39,7 @@ class Toolbox():
     The Utilities class
     
     This class provides some tools to help processing the requests. 
-    Most of the tools should be then included in the dnslib library.
+    Most of the tools should be eventually included in the dnslib library.
     """
     def is_root(self, label):
         """
@@ -68,11 +71,8 @@ class Resolver(BaseResolver):
     def __init__(self, zone):
         self.zone = zone
         self.eq = '__eq__'
+ #       self.pk, self.sk = libnacl.crypto_sign_keypair()
     def resolve(self, request, handler):
-        
-        print("Key pair: ")
-        print(self.pk)
-        print(len(self.pk))
         
         """
         The resolve method
@@ -84,16 +84,19 @@ class Resolver(BaseResolver):
         # TODO: helper to include in dnslib.
         helper = Toolbox()
 
+#      print("The nacl key pair: ")
+#     print("Public: " + self.pk)
+#    print("Private: " + self.sk)
         
         qname = request.q.qname
         qtype = QTYPE[request.q.qtype]
         qclass = CLASS[request.q.qclass]
         
         _, country_suffix = helper.split(str(qname))
-        #Ip addresses of server to query.
+        # Ip addresses of server to query.
         
         try:
-            name_server= TLDSERVER[country_suffix]
+            name_server = TLDSERVER[country_suffix]
         except DNSError: 
             reply = request.reply()
             reply.header.rcode = RCODE.NXDOMAIN
@@ -107,17 +110,37 @@ class Resolver(BaseResolver):
             is_address = False
             is_answered = False
 
-            while not is_answered:              
+            start = time.time()
+            
+            while not is_answered:
+                timeout = self.request_time_out(start, 2)
+                print("timeout: " + str(timeout))              
                 # Query to forward
                 recursive_query = DNSRecord.question(qname, qtype, qclass)
-                
-                ns_reply_packet = recursive_query.send(name_server, port)
+
+                try:
+                    ns_reply_packet = recursive_query.send(name_server, port, False, timeout)
+                except socket.error:
+                    ns_reply_packet = None
+                    reply = request.reply()
+                    timeout_txt = "The request for: "+ name_server + " encountered a timeout."
+                    reply.add_ar(RR(qname,QTYPE.TXT,rdata=TXT(timeout_txt)))
+                    reply.header.rcode = RCODE.SERVFAIL
+                    return reply
+
                 ns_reply = DNSRecord.parse(ns_reply_packet)
                
                 # The recursive resolver is not supposed to obtain questions back.
                 if (ns_reply.header.get_qr()) :
                     if QTYPE[request.q.qtype] in ['A', 'AAAA']:
                         is_address = True
+                        if ns_reply.rr:
+                            reply = request.reply()
+                            for rr in ns_reply.rr:
+                                reply.add_answer(rr)
+                            is_answered = True
+                            return reply
+                    if QTYPE[request.q.qtype] in ['CNAME', 'NS', 'MX', 'PTR']:
                         if ns_reply.rr:
                             reply = request.reply()
                             for rr in ns_reply.rr:
@@ -185,17 +208,24 @@ class Resolver(BaseResolver):
         Receiving the answer: 
         - (header) Parse out/discard questions when we want an answer.
         - (optional) reduce insane ttl
-        """
-        
-        
-        # instead of comparing take the suffix but no method exists yet.
-        
-        
-    
-        
+        """ 
         return reply
-        # print("This country does not exist")
-            # reply.header.rcode = getattr(RCODE, 'NOTZONE')
+    def request_time_out(self, start_time, limit_time):
+        now_time = time.time()
+        # Time can sometimes go a bit backward
+        # We handle it.
+        if (now_time < start_time):
+            if start_time - now_time > 1:
+                raise TimeoutError("Time going backwards.")
+            else:
+                now_time = start_time
+        expired_time = now_time - start_time
+        if expired_time > limit_time:
+            raise TimeoutError("Time expired.")
+        remaining_time = limit_time - expired_time
+        return min(remaining_time, limit_time)
+
+
 class RecursiveServer():
     """
     THE SCION Recursive Resolver.
@@ -231,7 +261,7 @@ def main():
     """
     Main function.
     """
-    server_address = "192.168.0.11"
+    server_address = "192.33.93.140"
     listening_port = 8888
     
     dns_server = RecursiveServer(server_address, listening_port)

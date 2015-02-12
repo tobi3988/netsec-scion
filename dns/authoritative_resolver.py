@@ -43,10 +43,7 @@ class Resolver(BaseResolver):
                                                  qtype == 'ANY' or 
                                                  rtype == 'CNAME'):
                 is_nxdomain = False
-                if (qtype == 'NS'):
-                    reply.add_auth(rr)
-                else:
-                    reply.add_answer(rr)
+                reply.add_answer(rr)
                 if rtype in ['CNAME', 'NS', 'MX', 'PTR']:
                     for a_name, a_rtype, a_rr in self.zone:
                         if a_name == rr.rdata.label and (a_rtype in ['A', 'AAAA']):
@@ -106,7 +103,7 @@ def main():
     Main function.
     """
 
-    server_address = "192.168.0.11"
+    server_address = "192.33.93.140"
     listening_port = 9999
     zone_file = "auth.conf"
     zone = open(zone_file)

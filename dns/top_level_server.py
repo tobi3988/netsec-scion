@@ -43,9 +43,6 @@ class Resolver(BaseResolver):
             # Is the answer of the question in the configuration file?
             if getattr(qname, self.eq)(name):
                 if (qtype == rtype or qtype == 'ANY' or rtype == 'CNAME'):
-                    if (qtype == 'NS'):
-                        reply.add_auth(rr)
-                    else:
                         reply.add_answer(rr)
                 else: 
                     if (rtype == 'NS'):
@@ -112,7 +109,7 @@ def main():
     Main function.
     """
 
-    server_address = "192.168.0.11"
+    server_address = "192.33.93.140"
     listening_port = 11111
     zone_file = "CHtld.conf"
     zone = open(zone_file)
