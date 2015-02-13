@@ -38,8 +38,9 @@ ZONE = {
       "domain1.ch.":("111.222.123.234", "1,7"),
     }
 
-# List of TLD nameservers.
+
 #TODO: Include it in the config-file?
+# List of TLD nameservers.
 TLDSERVER = Bimap('TLD',
                 {'.ch':'192.33.93.140', '.us': "192.33.93.140"},
                 DNSError)
@@ -48,7 +49,7 @@ def generate_random_string(nb_char = 4):
     """
     Random string generator.
 
-    Generates a random string of 32-bit size.
+    Generates a random string of (default) 32-bit size.
     """
     return ''.join([chr(random.randint(0, 255)) for i in range(nb_char)])
 
@@ -87,7 +88,7 @@ class Toolbox():
 class Resolver(BaseResolver):
     """
     The Resolver of the recursive server.
-    
+
     Implements the logic of the recursive resolver, standing
     between the stub resolver and the name servers. It forwards
     the request of the client and finally replies back.
@@ -95,59 +96,53 @@ class Resolver(BaseResolver):
     def __init__(self, zone):
         self.zone = zone
         self.eq = '__eq__'
-        # Curve: create 256-bit size pk-sk
         self.pk, self.sk = nacl.crypto_box_curve25519xsalsa20poly1305_keypair()
-        # Random nonce of 96-bit size.
-        self.nonce = self.generate_nonce()
 
     def resolve(self, request, handler):
-        
+
         """
         The resolve method
-        
+
         Processes the resolution of the queries by the recursive resolver.
         The recursive resolver gets the request from the stub resolver and
-        performs the recursive resolution before to send the reply back.
+        performs the recursive resolution before sending back the reply.
         """
+
         # TODO: helper to include in dnslib.
+        # This is more portable this way before rewriting the lib.
         helper = Toolbox()
 
-        print("The nacl key pair: ")
-        print("Public: " + str(len(self.pk)))
-        print("Private: " + str(len(self.sk)))
-        print("Nonce" + self.nonce)
-        
         qname = request.q.qname
         qtype = QTYPE[request.q.qtype]
         qclass = CLASS[request.q.qclass]
-        
+
         _, country_suffix = helper.split(str(qname))
-        # Ip addresses of server to query.
-        
+
         try:
             name_server = TLDSERVER[country_suffix]
-        except DNSError: 
+        except DNSError:
             reply = request.reply()
             reply.header.rcode = RCODE.NXDOMAIN
             return reply
-        
-        
+
         port = 11111
         if helper.is_root(str(qname)):
-            
             reply = None
             is_address = False
             is_answered = False
-
             start = time.time()
-            
             while not is_answered:
-                timeout = self.request_time_out(start, 2)        
+                timeout = self.request_time_out(start, 2)
                 # Query to forward
                 recursive_query = DNSRecord.question(qname, qtype, qclass)
 
+                dnscurve_nonce = self.generate_curve_nonce()
+                #The nonce is extended using 12 null bytes.
+                dnscurve_nonce = dnscurve_nonce + '\0' * 12
+                crypto_box = nacl.crypto_box_curve25519xsalsa20poly1305(m, n, pk, sk)
                 try:
-                    ns_reply_packet = recursive_query.send(name_server, port, False, timeout)
+                    ns_reply_packet = recursive_query.send(name_server,
+                                                           port, False, timeout)
                 except socket.error:
                     ns_reply_packet = None
                     reply = request.reply()
@@ -157,9 +152,8 @@ class Resolver(BaseResolver):
                     return reply
 
                 ns_reply = DNSRecord.parse(ns_reply_packet)
-               
-                # The recursive resolver is not supposed to obtain questions back.
-                if (ns_reply.header.get_qr()) :
+                #Drop questions when reply is expected.
+                if ns_reply.header.get_qr():
                     if QTYPE[request.q.qtype] in ['A', 'AAAA']:
                         is_address = True
                         if ns_reply.rr:
@@ -179,13 +173,13 @@ class Resolver(BaseResolver):
                         reply = request.reply()
                         for rauth in ns_reply.auth:
                             reply.add_auth(rauth)
-                        if ns_reply.ar: 
+                        if ns_reply.ar:
                             for ar in ns_reply.ar:
                                 reply.add_ar(ar)
                         if not is_address:
                             is_answered = True
                             return reply
-                        else: 
+                        else:
                             random_auth_record = random.choice(reply.auth)
                             auth_name = random_auth_record.rdata
                             for ar in reply.ar:
@@ -193,11 +187,10 @@ class Resolver(BaseResolver):
                                     name_server = str(ar.rdata)
                                 else:
                                     print("This case is out of scope.")
-                            
                             port = 9999
                     else:
                         print("This case is out of scope.")
-                        break;
+                        break
                 else:
                     print("Why do we receive a question? Drop it.")
         else :
@@ -236,18 +229,26 @@ class Resolver(BaseResolver):
         Receiving the answer: 
         - (header) Parse out/discard questions when we want an answer.
         - (optional) reduce insane ttl
-        """ 
+        """
         return reply
-    
-    def generate_nonce(self, length=8):
+
+    def generate_curve_nonce(self):
         """
-        Generates a nonce based on a 64-bit timestamp followed by a 32-bit random number.
-        
+        This function generates the nonce as proposed in DNSCurve.
+
+        The nonce is based on a 64-bit timestamp followed by a 32-bit
+        random number.
         """
-        now = str(int(time.time()))
-        now = now[:length]
+        #We want a 64-bit timestamp
+        timestamp_bytes = 8
+        #Nanoseconds since epoch could be better
+        #However, not every system provide it.
+        #Therefore, seconds here.
+        current_time = str(int(time.time()))
+        truncated_time = current_time[-timestamp_bytes :]
         random_string = generate_random_string()
-        return now + random_string
+
+        return truncated_time + random_string
 
     def request_time_out(self, start_time, limit_time):
         now_time = time.time()
