@@ -1,7 +1,7 @@
 """
 top_level_server.py
 
-Copyright 2014 ETH Zurich
+Copyright 2015 ETH Zurich
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,8 +18,13 @@ limitations under the License.
 
 import time
 
-from dnslib.server import BaseResolver, DNSServer, DNSLogger
-from dnslib.dns import QTYPE, RR, RCODE
+from dnslib.server import BaseResolver
+from dnslib.server import DNSServer
+from dnslib.server import DNSLogger
+from dnslib.dns import QTYPE
+from dnslib.dns import RR
+from dnslib.dns import RCODE
+import argparse
 
 class Resolver(BaseResolver):
     """
@@ -38,23 +43,23 @@ class Resolver(BaseResolver):
         reply = request.reply()
         qname = request.q.qname
         qtype = QTYPE[request.q.qtype]
-
+        is_nxdomain = True
         for name, rtype, rr in self.zone:
             # Is the answer of the question in the configuration file?
             if getattr(qname, self.eq)(name):
                 if (qtype == rtype or qtype == 'ANY' or rtype == 'CNAME'):
-                        reply.add_answer(rr)
-                else: 
-                    if (rtype == 'NS'):
-                        reply.add_auth(rr)
-                        
+                    is_nxdomain = False
+                    reply.add_answer(rr)
+                elif(rtype == 'NS'):
+                    reply.add_auth(rr)
+                    is_nxdomain = False
                 # ADD address as additional record
                 if rtype in ['CNAME', 'NS', 'MX', 'PTR']:
                     for a_name, a_rtype, a_rr in self.zone:
                         if a_name == rr.rdata.label and (a_rtype in ['A', 'AAAA']):
                             reply.add_ar(a_rr)
 
-        if not reply.auth or not reply.ar:
+        if is_nxdomain:
             print("The requested domain" + str(qname)
                     + " is not known. " + " Sending a NXDOMAIN"
                     + " packet as answer.")
@@ -108,17 +113,32 @@ def main():
     """
     Main function.
     """
+    argument_parser = argparse.ArgumentParser(description="Top-Level-server " + \
+                                            " responsible for many subdomains" + \
+                                            " and answering to them by providing referrals of" + \
+                                            " authoritative servers.")
+    argument_parser.add_argument("--zone", "-z", default="CHtld.conf",
+                                                 metavar="<zone-file>",
+                                                      help="Zone file")
+    argument_parser.add_argument("--port", "-p", type=int, \
+                                default=53, metavar="<port>", \
+                                help="Rec. Resolver's port (default is 53)")
 
-    server_address = "192.33.93.140"
-    listening_port = 11111
-    zone_file = "CHtld.conf"
-    zone = open(zone_file)
+    argument_parser.add_argument("--address", "-a", default="192.33.93.140", \
+                                metavar="<address>", \
+                                help="Rec. Resolver's address (default is  192.33.93.140)")
 
+    argument_parser.add_argument("--log", default="+request,+reply," + \
+                                 "+truncated,+error", \
+                                 help="Log hooks to enable (default:+request," + \
+                                 "+reply,+truncated,+error,-recv,-send,-data)")
+    arguments = argument_parser.parse_args()
+    zone = open(arguments.zone)
 
     log_prefix = False
-    logger = DNSLogger("+request,+reply,+truncated,+error,-recv,-send,-data", log_prefix)
+    logger = DNSLogger(arguments.log, log_prefix)
     
-    dns_server = TopLevelServer(zone, server_address, listening_port, logger)
+    dns_server = TopLevelServer(zone, arguments.address, arguments.port, logger)
     dns_server.startDNSResolver()
     
 if __name__ == "__main__":

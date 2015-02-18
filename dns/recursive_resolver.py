@@ -1,7 +1,7 @@
 """
 recursive_resolver.py
 
-Copyright 2014 ETH Zurich
+Copyright 2015 ETH Zurich
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-from dnslib.server import DNSServer
+from dnslib.server import DNSServer, DNSLogger
 from dnslib.server import BaseResolver
 from dnslib.dns import QTYPE
 from dnslib.dns import RCODE
@@ -24,135 +24,125 @@ from dnslib.dns import DNSError
 from dnslib.dns import CLASS
 from dnslib.dns import RR
 from dnslib.dns import TXT
-
 from dnslib.bimap import Bimap
+
 from lib.crypto import nacl
 
 import time
 import random
 import socket
+import argparse
+from dns.dnscurve_operations import dnscurve_generate_nonce
+import sys
 
-
-#TODO: Change-me
-ZONE = {
-      "domain1.ch.":("111.222.123.234", "1,7"),
-    }
-
-
-#TODO: Include it in the config-file?
 # List of TLD nameservers.
+# Many alternatives to create this.
 TLDSERVER = Bimap('TLD',
                 {'.ch':'192.33.93.140', '.us': "192.33.93.140"},
                 DNSError)
 
-def generate_random_string(nb_char = 4):
-    """
-    Random string generator.
-
-    Generates a random string of (default) 32-bit size.
-    """
-    return ''.join([chr(random.randint(0, 255)) for i in range(nb_char)])
-
-class Toolbox():
-    """
-    This is a temp class.
-
-    This class provides some tools to help processing the requests.
-    Most of the tools should be eventually included in the dnslib library.
-    """
-    def is_root(self, label):
-        """
-        Is the provided label pointing towards the root?
-        """
-        return len(label) > 0 and label[-1] == '.'
-
-
-    def split(self, label, depth=3):
-        """
-        Split the label into prefix and suffix at depth.
-
-        returns tuple (prefix, suffix)
-        works because ISO Country names = 2 char.
-        """
-        length = len(label)
-        if depth == 0:
-            return (label, None)
-        elif depth == length:
-            return (None, label)
-        elif depth < 0 or depth > length:
-            raise ValueError('depth must be >= 0 and <= name length')
-        # we can delete the old root
-        label = label[:-1]
-        return (label[:-depth]), (label[-depth :])
-
 class Resolver(BaseResolver):
+
     """
     The Resolver of the recursive server.
 
     Implements the logic of the recursive resolver, standing
     between the stub resolver and the name servers. It forwards
-    the request of the client and finally replies back.
+    the request of the client and eventually replies back.
     """
     def __init__(self, zone):
-        self.zone = zone
         self.eq = '__eq__'
+        # We separate the config file info in [RR name| RR type | RR]
+        self.zone = [(rr.rname, QTYPE[rr.rtype], rr) for rr in RR.fromZone(zone)]
         self.pk, self.sk = nacl.crypto_box_curve25519xsalsa20poly1305_keypair()
-
+ 
     def resolve(self, request, handler):
 
         """
-        The resolve method
+        The resolve method.
 
         Processes the resolution of the queries by the recursive resolver.
         The recursive resolver gets the request from the stub resolver and
         performs the recursive resolution before sending back the reply.
         """
 
-        # TODO: helper to include in dnslib.
-        # This is more portable this way before rewriting the lib.
-        helper = Toolbox()
-
         qname = request.q.qname
         qtype = QTYPE[request.q.qtype]
         qclass = CLASS[request.q.qclass]
 
-        _, country_suffix = helper.split(str(qname))
+        #TODO: Read and implement this.
+        """
+        PSEUDOCODE OF THE RECURSIVE RESOLVER: 
+        Remaining:
+        - (Special case, @todo -- caching)
+        - (@todo -- DNScurve (init- generate Pk, Sk, etc.)
+            - New RR-type.
+            - Certificate support
+            - new step necessary or NS - included certificate? 
+        Comment: 
+        - First it looks in cache for the leftmost part, if not, cut and next one,
+        until root.
+        
+        Receiving the answer: 
+        - (optional) reduce insane ttl
+        """
+
+        print("path: " + str(sys.path))
 
         try:
+            _, country_suffix = self.split(str(qname))
             name_server = TLDSERVER[country_suffix]
+        except ValueError:
+            reply = request.reply()
+            reply.header.rcode = RCODE.NXDOMAIN
+            error_msg = "Invalid domain name."
+            reply.add_answer(RR(qname,QTYPE.TXT,rdata=TXT(error_msg)))
+            return reply
         except DNSError:
             reply = request.reply()
             reply.header.rcode = RCODE.NXDOMAIN
             return reply
 
-        port = 11111
-        if helper.is_root(str(qname)):
+        #FIXME: remove it, this is for local testing.
+        port = 9999
+
+        if self.is_root(str(qname)):
             reply = None
             is_address = False
             is_answered = False
             start = time.time()
+
             while not is_answered:
                 timeout = self.request_time_out(start, 2)
+
                 # Query to forward
                 recursive_query = DNSRecord.question(qname, qtype, qclass)
+                recursive_query.is_curve = True
 
-                dnscurve_nonce = self.generate_curve_nonce()
-                #The nonce is extended using 12 null bytes.
-                dnscurve_nonce = dnscurve_nonce + '\0' * 12
-                crypto_box = nacl.crypto_box_curve25519xsalsa20poly1305(m, n, pk, sk)
+                # The nonce is extended using 12 null bytes.
+                recursive_query.dnscurve_nonce = dnscurve_generate_nonce()\
+                                                + bytes('\0' * 12, 'utf-8')
+                recursive_query.dnscurve_pk = self.pk
+                recursive_query.dnscurve_sk = self.sk
+                
+                #FIXME: The pk of the Name server should obviously be retrieved.
+                recursive_query.dnscurve_second_pk = b'#!u\x14w\xc8\x99\x98,\xba`0\xc2\xb86\xe3\xc7\x7f\x05\x1f\xd1c\x81\x9d\x0c\x8d\x91\xbc\xa0L^b'
+                # This is the corresponding secret key.
+                # fixed_obtained_sk = b'&\\_\xa6\x88DR\xf01\x08v\x1d\x89\xc20\x94i\xb5\xd3\xd0_>\xdf7/]\xe2FZE\x97\xff'
+
                 try:
                     ns_reply_packet = recursive_query.send(name_server,
                                                            port, False, timeout)
                 except socket.error:
                     ns_reply_packet = None
                     reply = request.reply()
-                    timeout_txt = "The request for: " + name_server + " encountered a timeout."
+                    timeout_txt = "The request for: " + name_server + " timed out."
                     reply.add_ar(RR(qname, QTYPE.TXT, rdata=TXT(timeout_txt)))
                     reply.header.rcode = RCODE.SERVFAIL
                     return reply
-
+                
                 ns_reply = DNSRecord.parse(ns_reply_packet)
-                #Drop questions when reply is expected.
+                # Drop questions when reply is expected.
                 if ns_reply.header.get_qr():
                     if QTYPE[request.q.qtype] in ['A', 'AAAA']:
                         is_address = True
@@ -187,7 +177,8 @@ class Resolver(BaseResolver):
                                     name_server = str(ar.rdata)
                                 else:
                                     print("This case is out of scope.")
-                            port = 9999
+                            #FIXME: obviously, should always be 53 when non-local.
+                            port = 11111
                     else:
                         print("This case is out of scope.")
                         break
@@ -197,60 +188,15 @@ class Resolver(BaseResolver):
             print("Wrong domain format.")
         reply = request.reply()
         reply.header.rcode = RCODE.NXDOMAIN
-
-        """
-        PSEUDOCODE OF THE RECURSIVE RESOLVER: 
-        Remaining:
-        - (Special case, @todo -- caching)
-        - (@todo -- DNScurve (init- generate Pk, Sk, etc.)
-            - New RR-type.
-            - Certificate support
-            - new step necessary or NS - included certificate? 
-        - The recursive server requests the queried domain from a root server.
-            - Since the central root does not exist in SCION, the 
-                recursive resolver know all the existing tld addresses.
-                It sends the query to the corresponding ISD-DNS-ROOT.
-        - The recursive server receives the answer from the ISD-DNS-ROOT
-            3-answers type: 
-                - Final, complete answer
-                    - Send answer back to stub'
-                - NS referral, glue || glueless
-                    -glue => then ask the provided server
-                    -glueless => need to re-query.
-                    (We should not allow out of bailiwick queries)
-                - CNAME referral
-                    - need to re-query.
-        Comment: 
-        - First it looks in cache for the leftmost part, if not, cut and next one,
-        until root.
-        """
-    
-        """
-        Receiving the answer: 
-        - (header) Parse out/discard questions when we want an answer.
-        - (optional) reduce insane ttl
-        """
         return reply
 
-    def generate_curve_nonce(self):
-        """
-        This function generates the nonce as proposed in DNSCurve.
-
-        The nonce is based on a 64-bit timestamp followed by a 32-bit
-        random number.
-        """
-        #We want a 64-bit timestamp
-        timestamp_bytes = 8
-        #Nanoseconds since epoch could be better
-        #However, not every system provide it.
-        #Therefore, seconds here.
-        current_time = str(int(time.time()))
-        truncated_time = current_time[-timestamp_bytes :]
-        random_string = generate_random_string()
-
-        return truncated_time + random_string
-
     def request_time_out(self, start_time, limit_time):
+        """
+        Computes the remaining time before timeout.
+        
+        This function is used to compute the timeout
+        and return an error to the client.
+        """
         now_time = time.time()
         # Time can sometimes go a bit backward
         # We handle it.
@@ -265,6 +211,32 @@ class Resolver(BaseResolver):
         remaining_time = limit_time - expired_time
         return min(remaining_time, limit_time)
 
+    def is_root(self, label):
+        """
+        Is the provided label pointing towards the root?
+        """
+        return len(label) > 0 and label[-1] == '.'
+
+    def split(self, label, depth=3):
+        """
+        Split the label into prefix and suffix at depth.
+
+        returns tuple (prefix, suffix)
+        works because ISO Country names = 2 char.
+        """
+        print("Label is: " + label)
+        length = len(label)
+        if depth == 0:
+            return (label, None)
+        elif depth == length:
+            return (None, label)
+        elif depth < 0 or depth > length:
+            raise ValueError('Wrong label format(depth must be >= 0 and <= name length)')
+        # we can delete the old root
+        label = label[:-1]
+
+        return (label[:-depth]), (label[-depth :])
+
 
 class RecursiveServer():
     """
@@ -273,19 +245,34 @@ class RecursiveServer():
     The recursive resolver performs the requests for the clients and eventually
     returns the final answer to the latter.
     """
-    def __init__(self, ip_address, listening_port):
+    def __init__(self, zone, ip_address, listening_port, log):
+        self.zone = zone
         self.ip_address = ip_address
         self.listening_port = listening_port
+        self.logger = log
 
-    def startRecursiveServer(self):
-        resolver = Resolver(ZONE)
+    def start_recursive_server(self):
+        """
+        Initiates the Recursive Resolver's routine.
+
+        Reads the Zone file containing necessary mappings and
+        starts the server. The server listens only udp queries.
+        """
+        resolver = Resolver(self.zone)
         udp_server = DNSServer(resolver, port=self.listening_port,
-                               address=self.ip_address)
-
+                               address=self.ip_address, logger=self.logger)
         udp_server.start_thread()
+        
+        print("Content of the Zone File for Recursive Resolver:")
+        print("---------------------------------------\n\n")
+        print("Entries: ")
+        for rr in resolver.zone:
+            print("    -> ", rr[2].toZone(), sep="")
+            print("")
         print("UDP Recursive Resolver listening on port: " + 
-              str(self.listening_port) + 
+              str(self.listening_port)                     +
              " and address: " + str(self.ip_address))
+        print("\n\n---------------------------------------\n\n")
         try:
             while udp_server.isAlive():
                 time.sleep(1)
@@ -295,17 +282,42 @@ class RecursiveServer():
             udp_server.stop()
             print("\n")
             print("The UDP Recursive Resolver was stopped.") 
-                
-                
+
+
 def main():
     """
     Main function.
+
+    Starts the DNS Recursive Resolver.
     """
-    server_address = "192.33.93.140"
-    listening_port = 8888
-    
-    dns_server = RecursiveServer(server_address, listening_port)
-    dns_server.startRecursiveServer()
+    argument_parser = argparse.ArgumentParser(description="Recursive resolver " + \
+                                            " inside ISP taking queries from end users" + \
+                                            " and answering to them by recursively querying" + \
+                                            " authoritative servers.")
+    argument_parser.add_argument("--zone", "-z", default="zone.conf",
+                                                 metavar="<zone-file>",
+                                                      help="Zone file")
+    argument_parser.add_argument("--port", "-p", type=int, \
+                                default=53, metavar="<port>", \
+                                help="Rec. Resolver's port (default is 53)")
+
+    argument_parser.add_argument("--address", "-a", default="192.33.93.140", \
+                                metavar="<address>", \
+                                help="Rec. Resolver's address (default is  192.33.93.140)")
+
+    argument_parser.add_argument("--log", default="+request,+reply," + \
+                                 "+truncated,+error", \
+                                 help="Log hooks to enable (default: +request," + \
+                                 "+reply,+truncated,+error,-recv,-send,-data)")
+    arguments = argument_parser.parse_args()
+    zone = open(arguments.zone)
+
+    log_prefix = False
+    logger = DNSLogger(arguments.log, log_prefix)
+
+    dns_server = RecursiveServer(zone, arguments.address, \
+                                  arguments.port, logger)
+    dns_server.start_recursive_server()
 
 if __name__ == "__main__":
     main()

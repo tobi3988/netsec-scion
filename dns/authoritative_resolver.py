@@ -1,7 +1,7 @@
 """
 recursive_resolver.py
 
-Copyright 2014 ETH Zurich
+Copyright 2015 ETH Zurich
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,8 +18,13 @@ limitations under the License.
 
 import time
 
-from dnslib.server import BaseResolver, DNSServer, DNSLogger
-from dnslib.dns import QTYPE, A, RR, RCODE
+from dnslib.server import BaseResolver
+from dnslib.server import DNSServer
+from dnslib.server import DNSLogger
+from dnslib.dns import QTYPE
+from dnslib.dns import RR
+from dnslib.dns import RCODE
+import argparse
 
 class Resolver(BaseResolver):
     """
@@ -30,6 +35,7 @@ class Resolver(BaseResolver):
     def __init__(self,zone):
         self.zone = [(rr.rname, QTYPE[rr.rtype], rr) for rr in RR.fromZone(zone)]
         self.eq = '__eq__'
+
     def resolve(self, request, handler):
         """
         Resolves the incoming queries.
@@ -96,23 +102,37 @@ class AuthoritativeServer():
             print("\n")
             print("The UDP server was stopped.")
 
-    
 
 def main():
     """
     Main function.
     """
+    argument_parser = argparse.ArgumentParser(description="Authoritative Resolver "  + \
+                                            " responsible for a Zone domain" + \
+                                            " and answering to clients" + \
+                                            " with respect to their queries.")
+    argument_parser.add_argument("--zone", "-z", default="auth.conf",
+                                                 metavar="<zone-file>",
+                                                      help="Zone file")
+    argument_parser.add_argument("--port", "-p", type=int, \
+                                default=53, metavar="<port>", \
+                                help="Rec. Resolver's port (default is 53)")
 
-    server_address = "192.33.93.140"
-    listening_port = 9999
-    zone_file = "auth.conf"
-    zone = open(zone_file)
+    argument_parser.add_argument("--address", "-a", default="192.33.93.140", \
+                                metavar="<address>", \
+                                help="Rec. Resolver's address (default is  192.33.93.140)")
 
+    argument_parser.add_argument("--log", default="+request,+reply," + \
+                                 "+truncated,+error", \
+                                 help="Log hooks to enable (default:+request," + \
+                                 "+reply,+truncated,+error,-recv,-send,-data)")
+    arguments = argument_parser.parse_args()
 
+    zone = open(arguments.zone)
     log_prefix = False
-    logger = DNSLogger("+request,+reply,+truncated,+error,-recv,-send,-data", log_prefix)
+    logger = DNSLogger(arguments.log, log_prefix)
     
-    dns_server = AuthoritativeServer(zone, server_address, listening_port, logger)
+    dns_server = AuthoritativeServer(zone, arguments.address, arguments.port, logger)
     dns_server.startDNSResolver()
 
 if __name__ == "__main__":
