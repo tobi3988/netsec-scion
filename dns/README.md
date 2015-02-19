@@ -70,9 +70,9 @@ This file provides some DNSCurve tools that are used for the encryption of the D
 config-files
 --------------
 
-*zone.conf	:	used by the recursive resolver
-*CHtld.conf	:	used as the .ch (swiss) TLD.
-*auth.con	:	used as an authoritative server for *domain1.ch*
+* zone.conf	:	used by the recursive resolver
+* CHtld.conf	:	used as the .ch (swiss) TLD.
+* auth.conf	:	used as an authoritative server for *domain1.ch*
 
 ../dns_localrun.sh
 --------------
@@ -95,10 +95,12 @@ Simple local usage:
 Launch the servers:  
 `./dns_localrun.sh`
 
-Try some *dig* commands: 
-`dig @RecResAddress -p8888 NS ethz.ch`
+Try some *dig* commands:  
 
-Output:
+`dig @192.33.93.140 -p8888 NS ethz.ch`
+
+Output:  
+
 	; <<>> DiG 9.9.5-3ubuntu0.2-Ubuntu <<>> @192.33.93.140 -p8888 NS ethz.ch
 	; (1 server found)
 	;; global options: +cmd
@@ -113,9 +115,10 @@ Output:
 `dig @192.33.93.140 -p8888 domain1.ch.`
   
 Output:  
-	; <<>> DiG 9.9.5-3ubuntu0.2-Ubuntu <<>> @192.33.93.140 -p8888 domain1.ch.
-	; (1 server found)
-	;; global options: +cmd
+
+	; <<>> DiG 9.9.5-3ubuntu0.2-Ubuntu <<>> @192.33.93.140 -p8888 domain1.ch.  
+	; (1 server found)  
+	;; global options: +cmd  
 	;; Got answer:
 	;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 52252
 	;; flags: qr aa rd ra ad; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
