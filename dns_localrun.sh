@@ -20,19 +20,44 @@ portNumber_AuthoritativeServer=11111
 #-----------------------------------------------------------
 
 #Uncomment below if necessary.
+#*****************************
 #echo "compile crypto library"
 #./scion.sh init
 #echo "--compiled--"
 
-
-echo "Executable"
-chmod +x dns/recursive_resolver.py
-echo "Done."
+#Uncomment if necessary.
+#*****************************
+#echo "Executable"
+#chmod +x dns/recursive_resolver.py
+#chmod +x dns/authoritative_resolver.py
+#chmod +x dns/dnscurve_operations.py
+#chmod +x dns/dummy_client.py
+#chmod +x dns/top_level_server.py
+#echo "Done."
 
 cd dns
 
+#If you want to have it in files, use:
+# > allout.txt 2>&1
+run_recursive_resolver() {
 PYTHONPATH=../ python3.4 ./recursive_resolver.py -z"zone.conf" -p8888 -a"192.33.93.140"
+}
 
-echo "------------------------------"
-echo " The DNS servers were stopped "
-echo "------------------------------"
+run_authoritative_resolver() {
+PYTHONPATH=../ python3.4 ./authoritative_resolver.py -z"auth.conf" -p11111 -a"192.33.93.140"
+}
+
+run_top_level_server(){
+PYTHONPATH=../ python3.4 ./top_level_server.py -z"CHtld.conf" -p9999 -a"192.33.93.140"
+}
+
+
+run_authoritative_resolver&
+run_top_level_server&
+run_recursive_resolver &
+
+
+echo "----------------------------------------------------------"
+echo " Servers have been initialized, now perform your queries. "
+echo "----------------------------------------------------------"
+

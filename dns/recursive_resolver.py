@@ -15,7 +15,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-from dnslib.server import DNSServer, DNSLogger
+from lib.crypto import nacl
+from dnslib.server import DNSServer
+from dnslib.server import DNSLogger
 from dnslib.server import BaseResolver
 from dnslib.dns import QTYPE
 from dnslib.dns import RCODE
@@ -26,14 +28,12 @@ from dnslib.dns import RR
 from dnslib.dns import TXT
 from dnslib.bimap import Bimap
 
-from lib.crypto import nacl
-
 import time
 import random
 import socket
 import argparse
 from dns.dnscurve_operations import dnscurve_generate_nonce
-import sys
+
 
 # List of TLD nameservers.
 # Many alternatives to create this.
@@ -55,7 +55,7 @@ class Resolver(BaseResolver):
         # We separate the config file info in [RR name| RR type | RR]
         self.zone = [(rr.rname, QTYPE[rr.rtype], rr) for rr in RR.fromZone(zone)]
         self.pk, self.sk = nacl.crypto_box_curve25519xsalsa20poly1305_keypair()
- 
+
     def resolve(self, request, handler):
 
         """
@@ -86,8 +86,6 @@ class Resolver(BaseResolver):
         Receiving the answer: 
         - (optional) reduce insane ttl
         """
-
-        print("path: " + str(sys.path))
 
         try:
             _, country_suffix = self.split(str(qname))
@@ -224,7 +222,6 @@ class Resolver(BaseResolver):
         returns tuple (prefix, suffix)
         works because ISO Country names = 2 char.
         """
-        print("Label is: " + label)
         length = len(label)
         if depth == 0:
             return (label, None)

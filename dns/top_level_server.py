@@ -121,7 +121,7 @@ def main():
                                                  metavar="<zone-file>",
                                                       help="Zone file")
     argument_parser.add_argument("--port", "-p", type=int, \
-                                default=53, metavar="<port>", \
+                                default=9999, metavar="<port>", \
                                 help="Rec. Resolver's port (default is 53)")
 
     argument_parser.add_argument("--address", "-a", default="192.33.93.140", \
