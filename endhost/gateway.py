@@ -30,7 +30,7 @@ from infrastructure.scion_elem import SCION_UDP_EH_DATA_PORT, BUFLEN
 
 # Dictionary of destinations that should be reached via SCION.
 # Format : "IP" : (ISD, AD)
-SCION_HOSTS = {"192.168.5.105" : (2, 26),}
+SCION_HOSTS = {"192.168.5.105" : (1, 16),}
 
 
 class SCIONGateway(object):

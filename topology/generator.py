@@ -50,12 +50,18 @@ LEAF_AD = 'LEAF'
 DEFAULT_BEACON_SERVERS = 1
 DEFAULT_CERTIFICATE_SERVERS = 1
 DEFAULT_PATH_SERVERS = 1
+DEFAULT_RECURSIVE_RESOLVERS = 1
+DEFAULT_TLD_SERVERS = 1
+DEFAULT_AUTHORITATIVE_RESOLVERS = 1
 PORT = '50000'
 ISD_AD_ID_DIVISOR = '-'
 BS_RANGE = '1'
 CS_RANGE = '21'
 PS_RANGE = '41'
 ER_RANGE = '61'
+DNS_TLD_RANGE = '81'
+DNS_AR_RANGE = '91'
+DNS_RR_RANGE = '95'
 
 default_subnet = "127.0.0.0/8"
 
@@ -243,6 +249,18 @@ def write_topo_files(AD_configs, er_ip_addresses):
             number_ps = AD_configs[isd_ad_id]["path_servers"]
         else:
             number_ps = DEFAULT_PATH_SERVERS
+        if "tld_servers" in AD_configs[isd_ad_id]:
+            number_tld = AD_configs[isd_ad_id]["tld_servers"]
+        else:
+            number_tld = DEFAULT_TLD_SERVERS
+        if "recursive_resolvers" in AD_configs[isd_ad_id]:
+            number_rr = AD_configs[isd_ad_id]["recursive_resolvers"]
+        else:
+            number_rr = DEFAULT_RECURSIVE_RESOLVERS
+        if "authoritative_resolvers" in AD_configs[isd_ad_id]:
+            number_ar = AD_configs[isd_ad_id]["authoritative_resolvers"]
+        else:
+            number_ar = DEFAULT_AUTHORITATIVE_RESOLVERS
         # Write beginning and general structure
         topo_dict = {'Core': 1 if is_core else 0,
                      'ISDID': int(isd_id),
@@ -250,7 +268,11 @@ def write_topo_files(AD_configs, er_ip_addresses):
                      'BeaconServers': {},
                      'CertificateServers': {},
                      'PathServers': {},
-                     'EdgeRouters': {}}
+                     'EdgeRouters': {},
+                     'TLDServers' : {},
+                     'RecursiveResolvers':{},
+                     'AuthoritativeResolvers':{}
+                     }
         with open(setup_file, 'a') as setup_fh, open(run_file, 'a') as run_fh:
             # Write Beacon Servers
             ip_address = '.'.join([first_byte, isd_id, ad_id, BS_RANGE])
@@ -293,6 +315,55 @@ def write_topo_files(AD_configs, er_ip_addresses):
                         'PYTHONPATH=../ python3 path_server.py ',
                         ('core ' if is_core else 'local '), ip_address, ' ..',
                         SCRIPTS_DIR, topo_file, ' ..', SCRIPTS_DIR, conf_file,
+                        '\"\n']))
+                    ip_address = increment_address(ip_address, mask)
+
+            #Write TLD Servers
+            if (AD_configs[isd_ad_id]['level'] != INTERMEDIATE_AD or
+                "tld_servers" in AD_configs[isd_ad_id]):
+                ip_address = '.'.join([first_byte, isd_id, ad_id, DNS_TLD_RANGE])
+                for tld_server in range(1, number_tld + 1):
+                    topo_dict['TLDServers'][tld_server] = {'AddrType': 'IPv4',
+                                                           'Addr': ip_address}
+                    setup_fh.write('ip addr add ' + ip_address + '/' + mask + 
+                                   ' dev lo\n')
+                    run_fh.write(''.join(['screen -d -m -S tld', isd_id, '-',
+                        ad_id, '-', str(tld_server), ' sh -c \"',
+                        'PYTHONPATH=../ python3 top_level_server.py -zCHtld.conf -t..',
+                        SCRIPTS_DIR, topo_file, ' -c..', SCRIPTS_DIR, conf_file,
+                        ' -a', ip_address,
+                        '\"\n']))
+                    ip_address = increment_address(ip_address, mask)
+            #Write Authoritative Resolvers
+            if (AD_configs[isd_ad_id]['level'] != INTERMEDIATE_AD or
+                "authoritative_resolvers" in AD_configs[isd_ad_id]):
+                ip_address = '.'.join([first_byte, isd_id, ad_id, DNS_AR_RANGE])
+                for ar_server in range(1, number_ar+1):
+                    topo_dict['AuthoritativeResolvers'][ar_server] = {'AddrType': 'IPv4',
+                                                                      'Addr': ip_address}
+                    setup_fh.write('ip addr add ' + ip_address + '/' + mask + 
+                                   ' dev lo\n')
+                    run_fh.write(''.join(['screen -d -m -S ar', isd_id, '-',
+                        ad_id, '-', str(ar_server), ' sh -c \"',
+                        'PYTHONPATH=../ python3 authoritative_resolver.py -zauth.conf -t..',
+                        SCRIPTS_DIR, topo_file, ' -c..', SCRIPTS_DIR, conf_file,
+                        ' -a', ip_address,' -i', isd_id, ' -d', ad_id,
+                        '\"\n']))
+                    ip_address = increment_address(ip_address, mask)
+            #Write Recursive Resolvers
+            if (AD_configs[isd_ad_id]['level'] != INTERMEDIATE_AD or
+                "recursive_resolvers" in AD_configs[isd_ad_id]):
+                ip_address = '.'.join([first_byte, isd_id, ad_id, DNS_RR_RANGE])
+                for rr_server in range(1, number_rr + 1):
+                    topo_dict['RecursiveResolvers'][rr_server] = {'AddrType': 'IPv4',
+                                                                  'Addr': ip_address}
+                    setup_fh.write('ip addr add ' + ip_address + '/' + mask + 
+                                   ' dev lo\n')
+                    run_fh.write(''.join(['screen -d -m -S rr', isd_id, '-',
+                        ad_id, '-', str(rr_server), ' sh -c \"',
+                        'PYTHONPATH=../ python3 recursive_resolver.py -zzone.conf -t..',
+                        SCRIPTS_DIR, topo_file, ' -c..', SCRIPTS_DIR, conf_file,
+                        ' -a', ip_address,
                         '\"\n']))
                     ip_address = increment_address(ip_address, mask)
             # Write Edge Routers

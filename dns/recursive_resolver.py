@@ -33,13 +33,18 @@ import random
 import socket
 import argparse
 from dns.dnscurve_operations import dnscurve_generate_nonce
+from endhost.sciond import SCIONDaemon
+from lib.packet.host_addr import IPv4HostAddr
+from ipaddress import ip_address
+import struct
 
 
 # List of TLD nameservers.
 # Many alternatives to create this.
 TLDSERVER = Bimap('TLD',
-                {'.ch':'192.33.93.140', '.us': "192.33.93.140"},
+                {'.ch':'127.1.12.81', '.us': "127.2.24.81"},
                 DNSError)
+
 
 class Resolver(BaseResolver):
 
@@ -50,11 +55,13 @@ class Resolver(BaseResolver):
     between the stub resolver and the name servers. It forwards
     the request of the client and eventually replies back.
     """
-    def __init__(self, zone):
+    def __init__(self, zone, address="", handler= None, scion_daemon = None):
         self.eq = '__eq__'
         # We separate the config file info in [RR name| RR type | RR]
         self.zone = [(rr.rname, QTYPE[rr.rtype], rr) for rr in RR.fromZone(zone)]
         self.pk, self.sk = nacl.crypto_box_curve25519xsalsa20poly1305_keypair()
+        self.address = address
+        self.scion_daemon = scion_daemon
 
     def resolve(self, request, handler):
 
@@ -101,9 +108,6 @@ class Resolver(BaseResolver):
             reply.header.rcode = RCODE.NXDOMAIN
             return reply
 
-        #FIXME: remove it, this is for local testing.
-        port = 9999
-
         if self.is_root(str(qname)):
             reply = None
             is_address = False
@@ -111,7 +115,7 @@ class Resolver(BaseResolver):
             start = time.time()
 
             while not is_answered:
-                timeout = self.request_time_out(start, 2)
+                timeout = self.request_time_out(start, 20000)
 
                 # Query to forward
                 recursive_query = DNSRecord.question(qname, qtype, qclass)
@@ -129,8 +133,12 @@ class Resolver(BaseResolver):
                 # fixed_obtained_sk = b'&\\_\xa6\x88DR\xf01\x08v\x1d\x89\xc20\x94i\xb5\xd3\xd0_>\xdf7/]\xe2FZE\x97\xff'
 
                 try:
-                    ns_reply_packet = recursive_query.send(name_server,
-                                                           port, False, timeout)
+                    _,isd, ad, _ = name_server.split(".")
+                    print("We are looking for isd, ad: " + str(isd) + " , " + str(ad))
+                    paths = self.scion_daemon.get_paths(isd, ad)
+                    print("My paths: " + str(paths))
+                    assert paths
+                    ns_reply_packet = recursive_query.send(src=self.address, dst=name_server, timeout=timeout)
                 except socket.error:
                     ns_reply_packet = None
                     reply = request.reply()
@@ -142,7 +150,7 @@ class Resolver(BaseResolver):
                 ns_reply = DNSRecord.parse(ns_reply_packet)
                 # Drop questions when reply is expected.
                 if ns_reply.header.get_qr():
-                    if QTYPE[request.q.qtype] in ['A', 'AAAA']:
+                    if QTYPE[request.q.qtype] in ['A', 'AAAA', 'SCIONA']:
                         is_address = True
                         if ns_reply.rr:
                             reply = request.reply()
@@ -171,12 +179,10 @@ class Resolver(BaseResolver):
                             random_auth_record = random.choice(reply.auth)
                             auth_name = random_auth_record.rdata
                             for ar in reply.ar:
-                                if str(auth_name) == ar.rname and QTYPE[ar.rtype] in ['A', 'AAAA']:
+                                if str(auth_name) == ar.rname and QTYPE[ar.rtype] in ['A', 'AAAA', 'SCIONA']:
                                     name_server = str(ar.rdata)
                                 else:
                                     print("This case is out of scope.")
-                            #FIXME: obviously, should always be 53 when non-local.
-                            port = 11111
                     else:
                         print("This case is out of scope.")
                         break
@@ -242,8 +248,10 @@ class RecursiveServer():
     The recursive resolver performs the requests for the clients and eventually
     returns the final answer to the latter.
     """
-    def __init__(self, zone, ip_address, listening_port, log):
+    def __init__(self, zone, scion_topo, scion_conf, ip_address, listening_port, is_core, log):
         self.zone = zone
+        self.scion_topo = scion_topo
+        self.scion_conf = scion_conf
         self.ip_address = ip_address
         self.listening_port = listening_port
         self.logger = log
@@ -255,11 +263,10 @@ class RecursiveServer():
         Reads the Zone file containing necessary mappings and
         starts the server. The server listens only udp queries.
         """
-        resolver = Resolver(self.zone)
-        udp_server = DNSServer(resolver, port=self.listening_port,
-                               address=self.ip_address, logger=self.logger)
-        udp_server.start_thread()
-        
+        sub1, sub2, sub3, _= str(self.ip_address).split(".")
+        daemon_address = sub1 +"." + sub2 +"." + sub3 +"." + "99"
+        sd = SCIONDaemon.start(IPv4HostAddr(daemon_address), self.scion_topo)
+        resolver = Resolver(zone=self.zone,address=self.ip_address, scion_daemon=sd)
         print("Content of the Zone File for Recursive Resolver:")
         print("---------------------------------------\n\n")
         print("Entries: ")
@@ -270,13 +277,14 @@ class RecursiveServer():
               str(self.listening_port)                     +
              " and address: " + str(self.ip_address))
         print("\n\n---------------------------------------\n\n")
+        udp_server = DNSServer(self.scion_topo, self.scion_conf, resolver, port=self.listening_port,
+                               address=self.ip_address, logger=self.logger)
         try:
-            while udp_server.isAlive():
-                time.sleep(1)
+            udp_server.run()
         except KeyboardInterrupt:
             pass
         finally:
-            udp_server.stop()
+            udp_server.clean()
             print("\n")
             print("The UDP Recursive Resolver was stopped.") 
 
@@ -294,13 +302,15 @@ def main():
     argument_parser.add_argument("--zone", "-z", default="zone.conf",
                                                  metavar="<zone-file>",
                                                       help="Zone file")
+    argument_parser.add_argument("--topo", "-t", default="", metavar="<topo-file>", help = "Topo file")
+    argument_parser.add_argument("--conf", "-c", default="", metavar="<conf-file>", help = "SCION conf")
     argument_parser.add_argument("--port", "-p", type=int, \
-                                default=53, metavar="<port>", \
-                                help="Rec. Resolver's port (default is 53)")
+                                default=30040, metavar="<port>", \
+                                help="Rec. Resolver's port (default is 30040)")
 
-    argument_parser.add_argument("--address", "-a", default="192.33.93.140", \
+    argument_parser.add_argument("--address", "-a", default="127.0.0.1", \
                                 metavar="<address>", \
-                                help="Rec. Resolver's address (default is  192.33.93.140)")
+                                help="Rec. Resolver's address (default is  127.0.0.1)")
 
     argument_parser.add_argument("--log", default="+request,+reply," + \
                                  "+truncated,+error", \
@@ -308,12 +318,13 @@ def main():
                                  "+reply,+truncated,+error,-recv,-send,-data)")
     arguments = argument_parser.parse_args()
     zone = open(arguments.zone)
-
+    #Recursive resolver located in the ISP (Each AD has a RR).
+    is_core = False
     log_prefix = False
     logger = DNSLogger(arguments.log, log_prefix)
 
-    dns_server = RecursiveServer(zone, arguments.address, \
-                                  arguments.port, logger)
+    dns_server = RecursiveServer(zone, arguments.topo, arguments.conf, arguments.address, \
+                                  arguments.port, is_core, logger)
     dns_server.start_recursive_server()
 
 if __name__ == "__main__":

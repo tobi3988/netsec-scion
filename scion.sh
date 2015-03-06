@@ -25,6 +25,13 @@ elif [ $1 == "run" ]; then
             bash $f
         done
     done
+#--Loop for my DNS screen--
+    cd ../dns/
+    for d in ../topology/ISD*; do
+        for f in $d/run/*; do
+            bash $f
+        done
+    done
 elif [ $1 == "stop" ]; then
     echo "stop scion infra's run"
     sudo killall screen

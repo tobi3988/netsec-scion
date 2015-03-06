@@ -93,6 +93,7 @@ class SCIONDaemon(SCIONElement):
                                            src_ad, dst_ad)
         path_request = PathSegmentRequest.from_values(self.addr, info)
         dst = self.topology.path_servers[0].addr
+        print("Sending request to path server : " + str(dst))
         self.send(path_request, dst)
 
         # Wait for path reply and clear us from the waiting list when we got it.
@@ -124,6 +125,7 @@ class SCIONDaemon(SCIONElement):
         if not down_segments:
             self._request_paths(PST.UP_DOWN, dst_isd, dst_ad)
             down_segments = self.down_segments(dst_isd=dst_isd, dst_ad=dst_ad)
+            print("list of down seg: " + str(down_segments))
         if len(self.up_segments) and down_segments:
             full_paths = PathCombinator.build_shortcut_paths(self.up_segments(),
                                                              down_segments)
@@ -238,6 +240,7 @@ class SCIONDaemon(SCIONElement):
             else:
                 logging.warning("Type %d not supported.", ptype)
         else: # From localhost (SCIONDaemon API)
+            print("in here.")
             self.api_handle_request(packet, sender)
 
 

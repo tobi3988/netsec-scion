@@ -29,7 +29,7 @@ def main():
 											"  for DNS application testing")
 
     argument_parser.add_argument("--port", "-p", type=int, 				\
-								default = 8888, metavar = "<port>", 		\
+								default = 9999, metavar = "<port>", 		\
 								help = "Resolver's port (default is 53)")
 
     argument_parser.add_argument("--address","-a",default="192.33.93.140", 			 \

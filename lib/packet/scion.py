@@ -34,6 +34,8 @@ class PacketType(object):
     DATA = 0  # data packet
     AID_REQ = 1  # Address request to local elements (from SCIONSwitch)
     AID_REP = 2  # AID reply to switch
+    DNS_REQ = 10 # DNS request packet
+    DNS_REP = 11 # DNS reply packet
     TO_LOCAL_ADDR = 100  # Threshold to distinguish local control packets
     BEACON = 101  # PathSegment type
     CERT_REQ_LOCAL = 102  # local certificate request (to certificate server)
@@ -77,6 +79,7 @@ TYPES_SRC = {
         PacketType.ROT_REP: 134275082,
         PacketType.CERT_REP_LOCAL:151052298,
         PacketType.IFID_REP: 167829514,
+        PacketType.DNS_REQ:184549503,
         }
 TYPES_SRC_INV = {v: k for k, v in TYPES_SRC.items()}
 TYPES_DST = {
@@ -87,6 +90,7 @@ TYPES_DST = {
         PacketType.ROT_REQ: 134275082,
         PacketType.CERT_REQ_LOCAL: 151052298,
         PacketType.IFID_REQ: 167829514,
+        PacketType.DNS_REP:201326719,
     }
 TYPES_DST_INV = {v: k for k, v in TYPES_DST.items()}
 

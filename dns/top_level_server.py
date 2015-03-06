@@ -74,19 +74,16 @@ class TopLevelServer():
     The authoritative server receives the client query and
     answers with the matching response.
     """
-    def __init__(self, zone, ip_address, listening_port, logger):
+    def __init__(self, zone, scion_topo, scion_conf, ip_address, listening_port, logger):
         self.zone = zone
+        self.scion_topo = scion_topo
+        self.scion_conf = scion_conf
         self.ip_address = ip_address
         self.listening_port = listening_port
         self.logger = logger
 
     def startDNSResolver(self):
         resolver = Resolver(self.zone)
-
-        udp_server = DNSServer(resolver, port=self.listening_port,
-                               address=self.ip_address, logger=self.logger)
-        udp_server.start_thread()
-        
         print("Content of the Zone File for .ch TLD:")
         print("---------------------------------------\n\n")
         print("Entries: ")
@@ -98,13 +95,15 @@ class TopLevelServer():
               str(self.listening_port) + 
               " and address: " + str(self.ip_address))
         print("\n\n---------------------------------------\n\n")
+        udp_server = DNSServer(self.scion_topo, self.scion_conf, resolver, port=self.listening_port,
+                               address=self.ip_address, logger=self.logger)
+
         try:
-            while udp_server.isAlive():
-                time.sleep(1)
+                udp_server.run()
         except KeyboardInterrupt:
             pass
         finally:
-            udp_server.stop()
+            udp_server.clean()
         print("\n")
         print("The UDP server was stopped.")
             
@@ -117,16 +116,19 @@ def main():
                                             " responsible for many subdomains" + \
                                             " and answering to them by providing referrals of" + \
                                             " authoritative servers.")
+
     argument_parser.add_argument("--zone", "-z", default="CHtld.conf",
                                                  metavar="<zone-file>",
                                                       help="Zone file")
+    argument_parser.add_argument("--topo", "-t", default="", metavar="<topo-file>", help = "Topo file")
+    argument_parser.add_argument("--conf", "-c", default="", metavar="<conf-file>", help = "SCION conf")
     argument_parser.add_argument("--port", "-p", type=int, \
-                                default=9999, metavar="<port>", \
-                                help="Rec. Resolver's port (default is 53)")
+                                default=30040, metavar="<port>", \
+                                help="Rec. Resolver's port (default is 30040)")
 
-    argument_parser.add_argument("--address", "-a", default="192.33.93.140", \
+    argument_parser.add_argument("--address", "-a", default="127.0.0.1", \
                                 metavar="<address>", \
-                                help="Rec. Resolver's address (default is  192.33.93.140)")
+                                help="Rec. Resolver's address (default is  127.0.0.1)")
 
     argument_parser.add_argument("--log", default="+request,+reply," + \
                                  "+truncated,+error", \
@@ -138,7 +140,7 @@ def main():
     log_prefix = False
     logger = DNSLogger(arguments.log, log_prefix)
     
-    dns_server = TopLevelServer(zone, arguments.address, arguments.port, logger)
+    dns_server = TopLevelServer(zone, arguments.topo, arguments.conf, arguments.address, arguments.port, logger)
     dns_server.startDNSResolver()
     
 if __name__ == "__main__":
