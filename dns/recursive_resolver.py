@@ -35,14 +35,13 @@ import argparse
 from dns.dnscurve_operations import dnscurve_generate_nonce
 from endhost.sciond import SCIONDaemon
 from lib.packet.host_addr import IPv4HostAddr
-from ipaddress import ip_address
-import struct
-
+import logging
+from lib.packet.scion import SCIONPacket
 
 # List of TLD nameservers.
 # Many alternatives to create this.
 TLDSERVER = Bimap('TLD',
-                {'.ch':'127.1.12.81', '.us': "127.2.24.81"},
+                {'.ch':'127.1.17.81', '.us': "127.2.25.81"},
                 DNSError)
 
 
@@ -133,12 +132,10 @@ class Resolver(BaseResolver):
                 # fixed_obtained_sk = b'&\\_\xa6\x88DR\xf01\x08v\x1d\x89\xc20\x94i\xb5\xd3\xd0_>\xdf7/]\xe2FZE\x97\xff'
 
                 try:
-                    _,isd, ad, _ = name_server.split(".")
-                    print("We are looking for isd, ad: " + str(isd) + " , " + str(ad))
-                    paths = self.scion_daemon.get_paths(isd, ad)
-                    print("My paths: " + str(paths))
-                    assert paths
-                    ns_reply_packet = recursive_query.send(src=self.address, dst=name_server, timeout=timeout)
+                    #FIXME: currently we only take the first path that is received.
+                    #I think we could provide a round robin or other ways to select paths. 
+                    #FIXME: Temporary hack to make it work. provide a better design.
+                    ns_reply_packet = recursive_query.send(src=self.address, dst=name_server, timeout=timeout, sd= self.scion_daemon)
                 except socket.error:
                     ns_reply_packet = None
                     reply = request.reply()
@@ -264,9 +261,11 @@ class RecursiveServer():
         starts the server. The server listens only udp queries.
         """
         sub1, sub2, sub3, _= str(self.ip_address).split(".")
-        daemon_address = sub1 +"." + sub2 +"." + sub3 +"." + "99"
-        sd = SCIONDaemon.start(IPv4HostAddr(daemon_address), self.scion_topo)
-        resolver = Resolver(zone=self.zone,address=self.ip_address, scion_daemon=sd)
+        daemon_address = (sub1 +"." + sub2 +"." + sub3 +"." + "99")
+        #DEBUG:
+        #self.scion_topo = "../topology/ISD1/topologies/ISD:1-AD:19-V:0.json"
+        sd = SCIONDaemon.start(IPv4HostAddr(daemon_address), self.scion_topo, False)
+        resolver = Resolver(zone=self.zone,address=self.ip_address, scion_daemon= sd)
         print("Content of the Zone File for Recursive Resolver:")
         print("---------------------------------------\n\n")
         print("Entries: ")
@@ -326,6 +325,6 @@ def main():
     dns_server = RecursiveServer(zone, arguments.topo, arguments.conf, arguments.address, \
                                   arguments.port, is_core, logger)
     dns_server.start_recursive_server()
-
+    logging.basicConfig(level=logging.DEBUG)
 if __name__ == "__main__":
     main()

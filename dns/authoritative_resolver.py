@@ -26,6 +26,8 @@ from dnslib.dns import RR, SCIONA
 from dnslib.dns import RCODE
 import argparse
 import copy
+from endhost.sciond import SCIONDaemon
+from lib.packet.host_addr import IPv4HostAddr
 
 
 class Resolver(BaseResolver):
@@ -107,13 +109,18 @@ class AuthoritativeServer():
             print("    -> ", rr[2].toZone(), sep="")
             print("")
         print("\n\n---------------------------------------\n\n")
-        
+                #DEBUG:
+        #self.scion_topo = "../topology/ISD1/topologies/ISD:1-AD:17-V:0.json"
+        sub1, sub2, sub3, _= str(self.ip_address).split(".")
+        daemon_address = (sub1 +"." + sub2 +"." + sub3 +"." + "97")
+        sd = SCIONDaemon.start(IPv4HostAddr(daemon_address), self.scion_topo, False)
+
         print("UDP server listening on port: " +
             str(self.listening_port) +
                 " and address: " + str(self.ip_address))
         print("\n\n---------------------------------------\n\n")
         udp_server = DNSServer(self.scion_topo, self.scion_conf,resolver, port= self.listening_port,
-                               address= self.ip_address, logger= self.logger)
+                               address= self.ip_address, logger= self.logger, sd=sd)
         try:
             udp_server.run()
         except KeyboardInterrupt:

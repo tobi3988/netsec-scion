@@ -25,6 +25,9 @@ from dnslib.dns import QTYPE
 from dnslib.dns import RR
 from dnslib.dns import RCODE
 import argparse
+from infrastructure.scion_elem import SCION_UDP_EH_DATA_PORT
+from endhost.sciond import SCIONDaemon
+from lib.packet.host_addr import IPv4HostAddr
 
 class Resolver(BaseResolver):
     """
@@ -95,8 +98,13 @@ class TopLevelServer():
               str(self.listening_port) + 
               " and address: " + str(self.ip_address))
         print("\n\n---------------------------------------\n\n")
+        #DEBUG:
+        #self.scion_topo = "../topology/ISD1/topologies/ISD:1-AD:17-V:0.json"
+        sub1, sub2, sub3, _= str(self.ip_address).split(".")
+        daemon_address = (sub1 +"." + sub2 +"." + sub3 +"." + "98")
+        sd = SCIONDaemon.start(IPv4HostAddr(daemon_address), self.scion_topo, False)
         udp_server = DNSServer(self.scion_topo, self.scion_conf, resolver, port=self.listening_port,
-                               address=self.ip_address, logger=self.logger)
+                               address=self.ip_address, logger=self.logger, sd= sd)
 
         try:
                 udp_server.run()
@@ -140,7 +148,7 @@ def main():
     log_prefix = False
     logger = DNSLogger(arguments.log, log_prefix)
     
-    dns_server = TopLevelServer(zone, arguments.topo, arguments.conf, arguments.address, arguments.port, logger)
+    dns_server = TopLevelServer(zone, arguments.topo, arguments.conf, arguments.address, SCION_UDP_EH_DATA_PORT, logger)
     dns_server.startDNSResolver()
     
 if __name__ == "__main__":
