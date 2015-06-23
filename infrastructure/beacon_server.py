@@ -16,6 +16,7 @@
 ============================================
 """
 # Stdlib
+import argparse
 import base64
 import copy
 import datetime
@@ -177,7 +178,7 @@ class BeaconServer(SCIONElement):
         Initialize an instance of the class BeaconServer.
 
         :param server_id: server identifier.
-        :type server_id: int
+        :type server_id: str
         :param topo_file: topology file.
         :type topo_file: string
         :param config_file: configuration file.
@@ -1396,21 +1397,26 @@ def main():
     """
     Main function.
     """
-    init_logging()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('type', choices=['core', 'local'],
+                        help='whether the server is a core BS or a local BS')
+    parser.add_argument('id', help='the local identifier of the server')
+    parser.add_argument('topo', help='the AD topology file')
+    parser.add_argument('conf', help='the AD configuration file')
+    parser.add_argument('policy', help='the AD path policy file')
+    parser.add_argument('-l', '--log', default='DEBUG',
+                        choices=['DEBUG', 'ERROR', 'WARNING', 'INFO', 'DEBUG'],
+                        help='the logging level')
+    args = parser.parse_args()
+    init_logging(level=args.log)
     handle_signals()
-    if len(sys.argv) != 6:
-        logging.error("run: %s <core|local> server_id topo_file "
-                      "conf_file path_policy_file",
-                      sys.argv[0])
-        sys.exit()
 
-    if sys.argv[1] == "core":
-        beacon_server = CoreBeaconServer(*sys.argv[2:])
-    elif sys.argv[1] == "local":
-        beacon_server = LocalBeaconServer(*sys.argv[2:])
+    if args.type == "core":
+        beacon_server = CoreBeaconServer(args.id, args.topo, args.conf,
+                                         args.policy)
     else:
-        logging.error("First parameter can only be 'local' or 'core'!")
-        sys.exit()
+        beacon_server = LocalBeaconServer(args.id, args.topo, args.conf,
+                                          args.policy)
 
     trace(beacon_server.id)
     logging.info("Started: %s", datetime.datetime.now())
