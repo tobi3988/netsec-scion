@@ -303,6 +303,15 @@ class PathStoreRecord(object):
 class PathStore(object):
     """
     Path Store class.
+
+    :ivar path_policy: the policy used to evaluate candidate paths.
+    :type path_policy: dict
+    :ivar candidates: the list of candidate paths, stored as
+       :class:`PathStoreRecord`s.
+    :type candidates: list
+    :ivar best_paths_history: the history of best paths selected by the path
+       store.
+    :type best_paths_history: :class:`collections.deque`
     """
 
     def __init__(self, path_policy):
