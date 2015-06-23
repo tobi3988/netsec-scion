@@ -412,6 +412,8 @@ class PathStore(object):
         self._update_all_delay_time()
         for candidate in self.candidates:
             candidate.update_fidelity(self.path_policy)
+            logging.info("Path {} updated fidelity to {}".format(
+                candidate.id, candidate.fidelity))
 
     def get_best_segments(self, k=None):
         """
