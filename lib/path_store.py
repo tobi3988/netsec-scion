@@ -461,7 +461,13 @@ class PathStore(object):
         :param seg_ids: list of segment IDs to remove.
         :type seg_ids: list
         """
-        self.candidates[:] = [c for c in self.candidates if c.id not in seg_ids]
+        remaining = []
+        for c in self.candidates:
+            if c.id not in seg_ids:
+                remaining.append(c)
+            else:
+                logging.info('Removing segment {}'.format(c.id))
+        self.candidates = remaining
         if self.candidates:
             self._update_all_fidelity()
             self.candidates = sorted(self.candidates, key=lambda x: x.fidelity,
