@@ -426,8 +426,11 @@ class PathStore(object):
             k = self.path_policy.best_set_size
         self._remove_expired_segments()
         best_paths = []
-        for candidate in self.candidates[:k]:
+        logging.info("Best paths:")
+        for i in range(k):
+            candidate = self.candidates[i]
             best_paths.append(candidate.pcb)
+            logging.info("{}. {}".format(i+1, candidate.id))
         return best_paths
 
     def get_latest_history_snapshot(self, k=None):
