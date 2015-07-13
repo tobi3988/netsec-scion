@@ -21,7 +21,7 @@ import struct
 from ipaddress import IPv4Address
 
 # SCION
-from lib.packet.ext_hdr import ExtensionHeader, ICNExtHdr
+from lib.packet.ext_hdr import ExtensionHeader, ICNExtHdr, DRKeyExtHdr
 from lib.packet.opaque_field import (
     InfoOpaqueField,
     OpaqueField,
@@ -354,8 +354,12 @@ class SCIONHeader(HeaderBase):
                 self.extension_hdrs.append(
                     ICNExtHdr(raw[offset:offset + hdr_len]))
             else:
-                self.extension_hdrs.append(
-                    ExtensionHeader(raw[offset:offset + hdr_len]))
+                if cur_hdr_type == DRKeyExtHdr.TYPE:
+                        self.extension_hdrs.append(
+                            DRKeyExtHdr(raw[offset:offset + hdr_len]))
+                else:
+                    self.extension_hdrs.append(
+                        ExtensionHeader(raw[offset:offset + hdr_len]))
             cur_hdr_type = next_hdr_type
             offset += hdr_len
         return offset

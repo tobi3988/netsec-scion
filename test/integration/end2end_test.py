@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from lib.packet.ext_hdr import DRKeyExtHdr
 """
 :mod:`end2end_test` --- SCION end2end tests
 ===========================================
@@ -23,6 +24,7 @@ import sys
 import threading
 import time
 import unittest
+import struct
 from ipaddress import IPv4Address
 
 # SCION
@@ -99,7 +101,14 @@ def ping_app():
     # assert paths
 
     dst = SCIONAddr.from_values(DST.isd, DST.ad, raddr)
-    spkt = SCIONPacket.from_values(sd.addr, dst, b"ping", path)
+    raw = struct.pack("!BBB16s32si16s48sB", 0, 15, 33, \
+            b'cccccccccccccccc', b'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 1, b'dddddddddddddddd', \
+            b'vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv', 0)
+    
+    drkey_ext = DRKeyExtHdr()
+    drkey_ext.parse(raw)
+    print("DRKey hdr parsed")
+    spkt = SCIONPacket.from_values(sd.addr, dst, b"ping", path, [drkey_ext], 33)
     (next_hop, port) = sd.get_first_hop(spkt)
     assert next_hop == hop
     print("Sending packet: %s\nFirst hop: %s:%s\n" % (spkt, next_hop, port))

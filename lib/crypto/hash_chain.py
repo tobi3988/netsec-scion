@@ -18,7 +18,6 @@
 
 from Crypto.Hash import SHA256
 
-
 class HashChainExhausted(Exception):
     """The hash chain is exhausted"""
     pass

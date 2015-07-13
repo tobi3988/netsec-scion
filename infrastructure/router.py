@@ -191,11 +191,14 @@ class Router(SCIONElement):
         else:
             handlers = self.post_ext_handlers
         ext = spkt.hdr.common_hdr.next_hdr
+        logging.debug("Extension is %u", ext)
+        
         l = 0
         while ext and l < len(spkt.hdr.extension_hdrs):
             if ext in handlers:
                 handlers[ext](spkt, next_hop)
-            ext = ext.next_ext
+                ext_hdr = handlers[ext]
+                ext = ext_hdr.next_ext
             l += 1
         if ext or l < len(spkt.hdr.extension_hdrs):
             logging.warning("Extensions terminated incorrectly.")
@@ -513,6 +516,7 @@ class Router(SCIONElement):
         spkt = SCIONPacket(packet)
         ptype = get_type(spkt)
         next_hop = NextHop()
+        logging.debug("Handling extensions")
         self.handle_extensions(spkt, next_hop, True)
         if ptype == PT.IFID_PKT and not from_local_ad:
             self.process_ifid_request(packet, next_hop)
@@ -537,7 +541,7 @@ def main():
         logging.error("run: %s router_id topo_file conf_file", sys.argv[0])
         sys.exit()
 
-    router = Router(*sys.argv[1:])
+    router = Router(*sys.argv[1:],pre_ext_handlers={'33','drkey_handler'})
 
     logging.info("Started: %s", datetime.datetime.now())
     router.run()
