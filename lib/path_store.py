@@ -469,7 +469,7 @@ class PathStore(object):
         """
         remaining = []
         for c in self.candidates:
-            if c.id not in seg_ids:
+            if c.id not in rec_ids:
                 remaining.append(c)
             else:
                 logging.info('Removing segment {}'.format(c.id))
