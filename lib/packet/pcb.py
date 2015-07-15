@@ -31,7 +31,7 @@ from lib.packet.path import CorePath
 from lib.packet.scion import PacketType, SCIONHeader, SCIONPacket
 from lib.packet.scion_addr import SCIONAddr, ISD_AD
 
-#: Default value for lenght (in bytes) of a revocation token.
+#: Default value for length (in bytes) of a revocation token.
 REV_TOKEN_LEN = 32
 
 
@@ -157,8 +157,9 @@ class ADMarking(Marking):
     """
     Packs all fields for a specific Autonomous Domain.
     """
-    METADATA_LEN = 8  # Length of a first row (containg cert version, and
-                      # lenghts of signature, ASD, and block) of ADMarking
+    # Length of a first row (containg cert version, and lengths of signature,
+    # ASD, and block) of ADMarking
+    METADATA_LEN = 8
 
     def __init__(self, raw=None):
         """
@@ -343,7 +344,6 @@ class PathSegment(Marking):
         Populates fields from a raw bytes block.
         """
         assert isinstance(raw, bytes)
-        self.size = len(raw)
         self.raw = raw[:]
         dlen = len(raw)
         if dlen < PathSegment.MIN_LEN:
@@ -359,15 +359,25 @@ class PathSegment(Marking):
         self.segment_id = raw[offset:offset + REV_TOKEN_LEN]
         offset += REV_TOKEN_LEN
         raw = raw[offset:]
+        offset += self._parse_hops(raw)
+        self.parsed = True
+        return offset
+
+    def _parse_hops(self, raw):
+        """
+        Populates AD Hops from a raw bytes block.
+        """
+        offset = 0
         for _ in range(self.iof.hops):
-            (_, asd_len, sig_len, block_len) = struct.unpack("!HHHH",
-                raw[:ADMarking.METADATA_LEN])
+            (_, asd_len, sig_len, block_len) = \
+                struct.unpack("!HHHH", raw[:ADMarking.METADATA_LEN])
             ad_len = (sig_len + asd_len + block_len +
                       ADMarking.METADATA_LEN + REV_TOKEN_LEN)
             ad_marking = ADMarking(raw[:ad_len])
             self.add_ad(ad_marking)
             raw = raw[ad_len:]
-        self.parsed = True
+            offset += ad_len
+        return offset
 
     def pack(self):
         """
@@ -538,23 +548,9 @@ class PathSegment(Marking):
         pcbs = []
         while len(raw) > 0:
             pcb = PathSegment()
-            pcb.iof = InfoOpaqueField(raw[:InfoOpaqueField.LEN])
-            offset = InfoOpaqueField.LEN
-            pcb.trc_ver, pcb.if_id = struct.unpack("!IH",
-                                                   raw[offset:offset + 6])
-            offset += 6  # 4B for trc_ver and 2B for if_id.
-            pcb.segment_id = raw[offset:offset + REV_TOKEN_LEN]
-            offset += REV_TOKEN_LEN
-            raw = raw[offset:]
-            for _ in range(pcb.iof.hops):
-                (_, asd_len, sig_len, block_len) = \
-                    struct.unpack("!HHHH", raw[:ADMarking.METADATA_LEN])
-                ad_len = (sig_len + asd_len + block_len +
-                          ADMarking.METADATA_LEN + REV_TOKEN_LEN)
-                ad_marking = ADMarking(raw[:ad_len])
-                pcb.add_ad(ad_marking)
-                raw = raw[ad_len:]
+            offset = pcb.parse(raw)
             pcbs.append(pcb)
+            raw = raw[offset:]
         return pcbs
 
     @staticmethod
@@ -580,6 +576,7 @@ class PathSegment(Marking):
         if type(other) is type(self):
             return (self.iof == other.iof and
                     self.trc_ver == other.trc_ver and
+                    self.segment_id == other.segment_id and
                     self.ads == other.ads)
         else:
             return False

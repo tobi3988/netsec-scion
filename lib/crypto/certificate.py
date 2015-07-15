@@ -15,15 +15,16 @@
 :mod:`certificate` --- SCION certificate parser
 ===============================================
 """
-
-from lib.crypto.nacl import crypto_sign_ed25519
-from lib.crypto.nacl import crypto_sign_ed25519_open
-from lib.crypto.asymcrypto import sign, verify
-import time
-import json
-import logging
+# Stdlib
 import base64
 import copy
+import json
+import logging
+import time
+
+# SCION
+from lib.crypto.nacl import crypto_sign_ed25519_open
+from lib.crypto.asymcrypto import sign, verify
 
 
 def verify_sig_chain_trc(msg, sig, subject, chain, trc, trc_version):
@@ -177,7 +178,7 @@ class Certificate(object):
 
     @classmethod
     def from_values(cls, subject, subject_sig_key, subject_enc_key, issuer,
-        iss_priv_key, version):
+                    iss_priv_key, version):
         """
         Generate a Certificate instance.
 
@@ -548,9 +549,9 @@ class TRC(object):
 
     @classmethod
     def from_values(cls, isd_id, version, core_quorum, trc_quorum, core_isps,
-        root_cas, core_ads, policies, registry_server_addr,
-        registry_server_cert, root_dns_server_addr, root_dns_server_cert,
-        trc_server_addr, signatures):
+                    root_cas, core_ads, policies, registry_server_addr,
+                    registry_server_cert, root_dns_server_addr,
+                    root_dns_server_cert, trc_server_addr, signatures):
         """
         Generate a TRC instance.
 

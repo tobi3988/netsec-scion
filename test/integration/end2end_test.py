@@ -19,7 +19,6 @@
 import logging
 import random
 import socket
-import struct
 import sys
 import threading
 import time
@@ -50,7 +49,7 @@ def get_paths_via_api(isd, ad):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", 5005))
-    msg = b'\x00' + struct.pack("H", isd) + struct.pack("Q", ad)
+    msg = b'\x00' + ISD_AD(isd, ad).pack()
     print("Sending path request to local API.")
     sock.sendto(msg, (SCIOND_API_HOST, SCIOND_API_PORT))
 
@@ -90,8 +89,7 @@ def ping_app():
     topo_file = ("../../topology/ISD%d/topologies/ISD:%d-AD:%d.json" %
                  (SRC.isd, SRC.isd, SRC.ad))
     sd = SCIONDaemon.start(saddr, topo_file, True)  # API on
-    print("Sending PATH request for (%d, %d) in 2 seconds" % (DST.isd, DST.ad))
-    time.sleep(2)
+    print("Sending PATH request for (%d, %d)" % (DST.isd, DST.ad))
     # Get paths through local API.
     paths_hops = get_paths_via_api(DST.isd, DST.ad)
     assert paths_hops
@@ -165,8 +163,8 @@ class TestSCIONDaemon(unittest.TestCase):
                     threading.Thread(target=ping_app).start()
                     threading.Thread(target=pong_app).start()
                     print("\nTesting:", src, "->", dst)
-                    for _ in range(TOUT):
-                        time.sleep(1)
+                    for _ in range(TOUT * 10):
+                        time.sleep(0.1)
                         if ping_received and pong_received:
                             break
                     self.assertTrue(ping_received)
@@ -184,7 +182,8 @@ if __name__ == "__main__":
     else:
         print("You can specify src and dst by giving 'sISD,sAD dISD,dAD' as "
               "the arguments. E.g.:\n# python3 end2end_test.py 1,19 2,26")
-        sources = [(1, 17), (1, 19), (2, 25), (2, 26)]
+        sources = [(1, 17), (1, 19), (1, 10), (2, 25)]
+        sources += [(2, 26), (1, 14), (1, 18)]
         destinations = sources[:]
         # Randomize order of the connections.
         random.shuffle(sources)

@@ -60,7 +60,8 @@ class CertServer(SCIONElement):
     # ZK path for incoming TRCs
     ZK_TRC_CACHE_PATH = "trc_cache"
 
-    def __init__(self, server_id, topo_file, config_file, trc_file):
+    def __init__(self, server_id, topo_file, config_file, trc_file,
+                 is_sim=False):
         """
         Initialize an instance of the class CertServer.
 
@@ -72,9 +73,11 @@ class CertServer(SCIONElement):
         :type config_file: string
         :param trc_file: TRC file.
         :type trc_file: string
+        :param is_sim: running in simulator
+        :type is_sim: bool
         """
         SCIONElement.__init__(self, "cs", topo_file, server_id=server_id,
-                              config_file=config_file)
+                              config_file=config_file, is_sim=is_sim)
         self.trc = TRC(trc_file)
         self.cert_chain_requests = collections.defaultdict(list)
         self.trc_requests = collections.defaultdict(list)
@@ -82,17 +85,19 @@ class CertServer(SCIONElement):
         self.trcs = {}
         self._latest_entry_cert_chains = 0
         self._latest_entry_trcs = 0
-        # Set when we have connected and read the existing recent and incoming
-        # cert chains and TRCs
-        self._state_synced = threading.Event()
-        # Add more IPs here if we support dual-stack
-        name_addrs = "\0".join([self.id, str(SCION_UDP_PORT),
-                                str(self.addr.host_addr)])
-        # TODO(lorenzo): def zookeeper host/port in topology
-        self.zk = Zookeeper(self.topology.isd_id, self.topology.ad_id,
-                            "cs", name_addrs, ["localhost:2181"],
-                            ensure_paths=(self.ZK_CERT_CHAIN_CACHE_PATH,
-                                          self.ZK_TRC_CACHE_PATH,))
+
+        if not is_sim:
+            # Add more IPs here if we support dual-stack
+            name_addrs = "\0".join([self.id, str(SCION_UDP_PORT),
+                                    str(self.addr.host_addr)])
+            # Set when we have connected and read the existing recent and
+            # incoming cert chains and TRCs
+            self._state_synced = threading.Event()
+            # TODO(lorenzo): def zookeeper host/port in topology
+            self.zk = Zookeeper(self.topology.isd_id, self.topology.ad_id,
+                                "cs", name_addrs, ["localhost:2181"],
+                                ensure_paths=(self.ZK_CERT_CHAIN_CACHE_PATH,
+                                              self.ZK_TRC_CACHE_PATH,))
 
     def _store_cert_chain_in_zk(self, cert_chain_file, cert_chain):
         """
@@ -318,7 +323,6 @@ class CertServer(SCIONElement):
         identifiers = re.split(':|-', entry)
         return (int(identifiers[1]), int(identifiers[3]))
 
-    @thread_safety_net("handle_shared_certs")
     def handle_shared_certs(self):
         """
         A thread to handle Zookeeper connects/disconnects and the shared cache
@@ -515,9 +519,11 @@ class CertServer(SCIONElement):
         """
         Run an instance of the Certificate Server.
         """
-        threading.Thread(target=self.handle_shared_certs,
-                         name="CS shared certs",
-                         daemon=True).start()
+        threading.Thread(
+            target=thread_safety_net,
+            args=("handle_shared_certs", self.handle_shared_certs),
+            name="CS shared certs",
+            daemon=True).start()
         SCIONElement.run(self)
 
 

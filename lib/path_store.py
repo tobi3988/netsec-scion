@@ -18,11 +18,11 @@
 # Stdlib
 import json
 import logging
-import time
 from collections import defaultdict, deque
 
 # SCION
 from lib.packet.pcb import PathSegment
+from lib.util import SCIONTime
 
 
 class PathPolicy(object):
@@ -110,9 +110,9 @@ class PathPolicy(object):
                                 <= pcb.get_n_hops() <=
                                 self.property_ranges['HopsLength'][1]))
         if self.property_ranges['DelayTime']:
-            check = (check and (self.property_ranges['DelayTime'][0]
-                                <= int(time.time()) - pcb.get_timestamp() <=
-                                self.property_ranges['DelayTime'][1]))
+            check = (check and (self.property_ranges['DelayTime'][0] <=
+                                int(SCIONTime.get_time()) - pcb.get_timestamp()
+                                <= self.property_ranges['DelayTime'][1]))
         if self.property_ranges['GuaranteedBandwidth']:
             check = (check and (self.property_ranges['GuaranteedBandwidth'][0]
                                 <= 10 <=
@@ -234,13 +234,13 @@ class PathStoreRecord(object):
         """
         assert isinstance(pcb, PathSegment)
         self.pcb = pcb
-        self.id = pcb.segment_id
+        self.id = pcb.get_hops_hash(hex=True)
         self.fidelity = 0
         self.peer_links = 0
         self.hops_length = 0
         self.disjointness = 0
         self.last_sent_time = 1420070400  # year 2015
-        self.last_seen_time = int(time.time())
+        self.last_seen_time = int(SCIONTime.get_time())
         self.delay_time = 0
         self.expiration_time = pcb.get_expiration_time()
         self.guaranteed_bandwidth = 0
@@ -256,17 +256,18 @@ class PathStoreRecord(object):
         :type path_policy: dict
         """
         self.fidelity = 0
-        now = time.time()
+        now = SCIONTime.get_time()
         self.fidelity += (path_policy.property_weights['PeerLinks'] *
                           self.peer_links)
         self.fidelity += (path_policy.property_weights['HopsLength'] /
                           self.hops_length)
         self.fidelity += (path_policy.property_weights['Disjointness'] *
                           self.disjointness)
-        self.fidelity += (path_policy.property_weights['LastSentTime'] *
-                          (now - self.last_sent_time) / now)
-        self.fidelity += (path_policy.property_weights['LastSeenTime'] *
-                          self.last_seen_time / now)
+        if now != 0:
+            self.fidelity += (path_policy.property_weights['LastSentTime'] *
+                              (now - self.last_sent_time) / now)
+            self.fidelity += (path_policy.property_weights['LastSeenTime'] *
+                              self.last_seen_time / now)
         self.fidelity += (path_policy.property_weights['DelayTime'] /
                           self.delay_time)
         self.fidelity += (path_policy.property_weights['ExpirationTime'] *
@@ -452,19 +453,19 @@ class PathStore(object):
         """
         Remove candidates if their expiration_time is up.
         """
-        seg_ids = []
-        now = time.time()
+        rec_ids = []
+        now = SCIONTime.get_time()
         for candidate in self.candidates:
             if candidate.expiration_time <= now:
-                seg_ids.append(candidate.id)
-        self.remove_segments(seg_ids)
+                rec_ids.append(candidate.id)
+        self.remove_segments(rec_ids)
 
-    def remove_segments(self, seg_ids):
+    def remove_segments(self, rec_ids):
         """
-        Remove segments in 'seg_ids' from the candidates.
+        Remove segments in 'rec_ids' from the candidates.
 
-        :param seg_ids: list of segment IDs to remove.
-        :type seg_ids: list
+        :param rec_ids: list of record IDs to remove.
+        :type rec_ids: list
         """
         remaining = []
         for c in self.candidates:
@@ -478,15 +479,15 @@ class PathStore(object):
             self.candidates = sorted(self.candidates, key=lambda x: x.fidelity,
                                      reverse=True)
 
-    def get_segment(self, seg_id):
+    def get_segment(self, rec_id):
         """
-        Return the segment for the corresponding ID or None.
+        Return the segment for the corresponding record ID or None.
 
-        :param seg_ids: ID of the segment to return.
-        :type seg_ids: int
+        :param rec_id: ID of the segment to return.
+        :type rec_id: string
         """
         for record in self.candidates:
-            if record.id == seg_id:
+            if record.id == rec_id:
                 return record.pcb
         return None
 

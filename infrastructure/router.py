@@ -38,7 +38,7 @@ from lib.packet.scion import (
 )
 from lib.packet.scion_addr import ISD_AD, SCIONAddr
 from lib.thread import thread_safety_net
-from lib.util import handle_signals
+from lib.util import handle_signals, SCIONTime
 
 IFID_PKT_TOUT = 1  # How often IFID packet is sent to neighboring router.
 
@@ -95,7 +95,7 @@ class Router(SCIONElement):
     """
 
     def __init__(self, router_id, topo_file, config_file, pre_ext_handlers=None,
-                 post_ext_handlers=None):
+                 post_ext_handlers=None, is_sim=False):
         """
         Initialize an instance of the class Router.
 
@@ -113,9 +113,11 @@ class Router(SCIONElement):
                                   for those extensions that execute after
                                   routing.
         :type post_ext_handlers: dict
+        :param is_sim: running in simulator
+        :type is_sim: bool
         """
         SCIONElement.__init__(self, "er", topo_file, server_id=router_id,
-                              config_file=config_file)
+                              config_file=config_file, is_sim=is_sim)
         self.interface = None
         for edge_router in self.topology.get_all_edge_routers():
             if edge_router.addr == self.addr.host_addr:
@@ -123,8 +125,7 @@ class Router(SCIONElement):
                 break
         assert self.interface is not None
         logging.info("Interface: %s", self.interface.__dict__)
-        self.of_gen_key = get_roundkey_cache(bytes("%s" %
-            self.config.master_ad_key, 'utf-8'))
+        self.of_gen_key = get_roundkey_cache(self.config.master_ad_key)
         if pre_ext_handlers:
             self.pre_ext_handlers = pre_ext_handlers
         else:
@@ -133,19 +134,26 @@ class Router(SCIONElement):
             self.post_ext_handlers = post_ext_handlers
         else:
             self.post_ext_handlers = {}
-        self._remote_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._remote_socket.setsockopt(socket.SOL_SOCKET,
-                                       socket.SO_REUSEADDR, 1)
-        self._remote_socket.bind((str(self.interface.addr),
-                                  self.interface.udp_port))
-        self._sockets.append(self._remote_socket)
-        logging.info("IP %s:%u", self.interface.addr, self.interface.udp_port)
+        if not is_sim:
+            self._remote_socket = socket.socket(socket.AF_INET,
+                                                socket.SOCK_DGRAM)
+            self._remote_socket.setsockopt(socket.SOL_SOCKET,
+                                           socket.SO_REUSEADDR, 1)
+            self._remote_socket.bind((str(self.interface.addr),
+                                      self.interface.udp_port))
+            self._sockets.append(self._remote_socket)
+            logging.info("IP %s:%u", self.interface.addr,
+                         self.interface.udp_port)
 
     def run(self):
         """
         Run the router threads.
         """
-        threading.Thread(target=self.sync_interface, daemon=True).start()
+        threading.Thread(
+            target=thread_safety_net,
+            args=("sync_interface", self.sync_interface),
+            name="Sync Interfaces",
+            daemon=True).start()
         SCIONElement.run(self)
 
     def send(self, packet, next_hop, use_local_socket=True):
@@ -173,8 +181,8 @@ class Router(SCIONElement):
     def handle_extensions(self, spkt, next_hop, pre_routing_phase):
         """
         Handle SCION Packet extensions. Handlers can be defined for pre- and
-        post-routing.
-        A handler takes two parameters: packet (SCIONPacket), next_hop (NextHop).
+        post-routing. A handler takes two parameters: packet (SCIONPacket),
+        next_hop (NextHop).
 
         :param spkt:
         :type spkt:
@@ -197,7 +205,6 @@ class Router(SCIONElement):
         if ext or l < len(spkt.hdr.extension_hdrs):
             logging.warning("Extensions terminated incorrectly.")
 
-    @thread_safety_net("sync_interface")
     def sync_interface(self):
         """
         Synchronize and initialize the router's interface with that of a
@@ -248,9 +255,8 @@ class Router(SCIONElement):
         :type from_bs:
         """
         beacon = PathConstructionBeacon(packet)
-        logging.info('PCB:%s', beacon)
         if from_bs:
-            if self.interface.if_id != beacon.pcb.if_id:
+            if self.interface.if_id != beacon.pcb.get_last_pcbm().hof.egress_if:
                 logging.error("Wrong interface set by BS.")
                 return
             next_hop.addr = self.interface.to_addr
@@ -293,7 +299,7 @@ class Router(SCIONElement):
         :param ts: timestamp against which the opaque field is verified.
         :type ts: int
         """
-        if int(time.time()) <= ts + hof.exp_time * EXP_TIME_UNIT:
+        if int(SCIONTime.get_time()) <= ts + hof.exp_time * EXP_TIME_UNIT:
             if verify_of_mac(self.of_gen_key, hof, prev_hof, ts):
                 return True
             else:
@@ -382,7 +388,17 @@ class Router(SCIONElement):
             if self.verify_of(curr_hof, prev_hof, timestamp):
                 spkt.hdr.increase_of(2)
                 opaque_field = spkt.hdr.get_relative_of(2)
-                next_hop.addr = self.ifid2addr[opaque_field.egress_if]
+                if opaque_field.egress_if:
+                    next_hop.addr = self.ifid2addr[opaque_field.egress_if]
+                else:  # Send to endhost (on-path case), TODO: check length
+                    spkt.hdr.common_hdr.curr_iof_p = \
+                        spkt.hdr.common_hdr.curr_of_p
+                    timestamp = spkt.hdr.get_current_iof().timestamp
+                    prev_hof = spkt.hdr.get_relative_of(1)
+                    if not self.verify_of(opaque_field, prev_hof, timestamp):
+                        return
+                    next_hop.addr = spkt.hdr.dst_addr.host_addr
+                    next_hop.port = SCION_UDP_EH_DATA_PORT
                 logging.debug("send() here, find next hop1")
                 self.send(spkt, next_hop)
         elif info == OFT.INPATH_XOVR:  # TODO: implement that case
@@ -434,7 +450,7 @@ class Router(SCIONElement):
                 spkt.hdr.common_hdr.curr_of_p == curr_iof_p + OpaqueField.LEN):
             spkt.hdr.increase_of(1)
         if (spkt.hdr.get_current_of().info == OFT.LAST_OF and
-            not spkt.hdr.is_last_path_of() and not new_segment):
+                not spkt.hdr.is_last_path_of() and not new_segment):
             self.crossover_forward(spkt, next_hop, info)
         else:
             self.normal_forward(spkt, next_hop, from_local_ad, ptype)
@@ -488,8 +504,7 @@ class Router(SCIONElement):
         :param ptype: the type of the packet.
         :type ptype: :class:`lib.packet.scion.PacketType`
         """
-        if (not spkt.hdr.is_first_path_of() and
-                ptype == PT.DATA and from_local_ad):
+        if from_local_ad:
             self.write_to_egress_iface(spkt, next_hop)
         else:
             self.forward_packet(spkt, next_hop, from_local_ad, ptype)
