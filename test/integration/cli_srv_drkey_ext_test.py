@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from lib.packet.ext.drkey import DRKeyExt
 """
 :mod:`cli_srv_ext_test` --- SCION client-server test with an extension
 ===========================================
@@ -65,7 +64,7 @@ def client():
     # Create DRKey extensions
     nrHops = int(len(path.pack()) / 8)
     print("Max path length", nrHops)
-    e2 = DRKeyExt.from_values([b"\x01" * 16], [b"\x01" * 16], 1, [b"\x03" * 16], [b"\x05" * 48], nrHops)
+    e2 = DRKeyExt.from_values(b"\x01" * 16, b"\x01" * 32, 1, b"\x03" * 16, b"\x05" * 48, nrHops)
     # Create another plain extension
     e3 = ExtensionHeader()
     # Create a SCION packet with the extensions

@@ -13,9 +13,18 @@
 # limitations under the License.
 
 #stdlib
+import base64
 import struct
 
+from lib.crypto.asymcrypto import sign
+from lib.crypto.symcrypto import get_roundkey_cache
 from lib.packet.ext_hdr import ExtensionHeader
+from lib.util import get_sig_key_file_path, read_file
+
+from Crypto.Cipher import AES
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Hash import SHA384
+from Crypto.PublicKey import RSA
 
 class DRKeyExt(ExtensionHeader):
     """
@@ -83,7 +92,9 @@ class DRKeyExt(ExtensionHeader):
 
     TYPE = 33  # Extension header type
     MIN_LEN = 118
-    HOP_OVERHEAD = 80 # 16 B shared key, 64 B signature
+    HOP_OVERHEAD_ENC = 16 # 16 B encrypted shared key
+    HOP_OVERHEAD_SIG = 64 # 64 B signature of encrypted shared key
+    HOP_OVERHEAD = HOP_OVERHEAD_ENC + HOP_OVERHEAD_SIG
     
     
     def __init__(self, raw=None):
@@ -94,10 +105,12 @@ class DRKeyExt(ExtensionHeader):
         :type raw: 
         """
         
-        super(ExtensionHeader, self).__init__(self)
+        ExtensionHeader.__init__(self)
         self.hopInfo=[]
         if raw is not None:
-            super(ExtensionHeader, self).parse(raw)
+            self.parse(raw)
+            print("payload is ")
+            print(self.payload)
             self.parse_payload()
         
     def parse_payload(self):
@@ -106,21 +119,23 @@ class DRKeyExt(ExtensionHeader):
         """
         payload = self.payload
         
-        self.sessionID = struct.unpack("!16B", payload[:16])
-        self.pubKey = struct.unpack("!32B", payload[16:48])
+        print(payload[:16])
+        
+        self.sessionID = struct.unpack("!16s", payload[:16])
+        self.pubKey = struct.unpack("!32s", payload[16:48])
         self.time = struct.unpack("!i", payload[48:52])
-        self.authTag = struct.unpack("!16B", payload[52:68])
-        self.auth = struct.unpack("!48B", payload[68:118])
+        self.authTag = struct.unpack("!16s", payload[52:68])
+        self.auth = struct.unpack("!48s", payload[68:118])
         
         payload = payload[118:]
         
         while payload:
-            encKey = struct.unpack("!16B", payload[:16])
-            signedKey = struct.unpack("!64B", payload[16:80])
+            encKey = struct.unpack("!16s", payload[:16])
+            signedKey = struct.unpack("!64s", payload[16:80])
             self.hopInfo.append((encKey, signedKey))
             payload = payload[80:]
     
-    @classmethod
+    @staticmethod
     def from_values(sessionID, pubKey, time, authTag, auth, nrHops):
         """
         Create an instance of the DRKeyExt class.
@@ -145,7 +160,8 @@ class DRKeyExt(ExtensionHeader):
         ext.time = time
         ext.authTag = authTag
         ext.auth = auth
-        ext.hopInfo = [b"\x00" * nrHops * DRKeyExt.HOP_OVERHEAD]
+        for _ in range(0,nrHops):
+            ext.hopInfo.append((b"\x00" * ext.HOP_OVERHEAD_ENC, b"\x00" * ext.HOP_OVERHEAD_SIG))
         return ext
            
     def change_hop_key(self, hopNr, encKey, sigKey):
@@ -161,49 +177,81 @@ class DRKeyExt(ExtensionHeader):
         """
         Pack the extension header to bytes
         """
-        
-        self.payload = self.payload[:118]
+        packing = []
+        packing.append(struct.pack("!16s", self.sessionID))
+        packing.append(struct.pack("!32s", self.pubKey))
+        packing.append(struct.pack("!i", self.time))
+        packing.append(struct.pack("!16s", self.authTag))
+        packing.append(struct.pack("!48s", self.auth))
 
         for (encKey, sigKey) in self.hopInfo:
-            tmp = struct.pack("!16B64B", encKey, sigKey)
-            self.payload.join(tmp)
+            tmp = struct.pack("!16s64s", encKey, sigKey)
+            packing.append(tmp)
+        print(packing)
+        self.payload = b"".join(packing)
 
         return ExtensionHeader.pack(self)
     
     def __str__(self):
         
         ret_str = "[DRKey Ext - start]\n"
-        ret_str += "  [next_hdr:%d, len:%d self.sessionID%d]\n" % (self.next_hdr, len(self), self.sessionID[:6])
-        ret_str += "  [%d]\n" % (self.sessionID[6:14])
-        ret_str += "  [%d PubKey:%d]\n" % (self.sessionID[14:16], self.pubKey[:6])
-        ret_str += "  [%d]\n" % (self.pubKey[6:14])
-        ret_str += "  [%d]\n" % (self.pubKey[14:22])
-        ret_str += "  [%d]\n" % (self.pubKey[22:30])
-        ret_str += "  [%d Time:%d]\n" % (self.pubKey[30:32], self.time)
-        ret_str += "  [AuthTag:%d]\n" % (self.authTag[:8])
-        ret_str += "  [%d]\n" % (self.authTag[8:16])
-        ret_str += "  [AuthTag:%d]\n" % (self.auth[:8])
-        ret_str += "  [%d]\n" % (self.auth[8:16])
-        ret_str += "  [%d]\n" % (self.auth[16:24])
-        ret_str += "  [%d]\n" % (self.auth[24:32])
-        ret_str += "  [%d]\n" % (self.auth[32:40])
-        ret_str += "  [%d]\n" % (self.auth[40:48])
+        ret_str += "  [next_hdr:%d, len:%d self.sessionID:" % (self.next_hdr, len(self)) + str(self.sessionID[:6]) +"]\n"
+        ret_str += "  [" + str(self.sessionID[6:14]) +"]\n"
+        ret_str += "  [" + str(self.sessionID[14:16]) +" PubKey:" + str(self.pubKey[:6]) +"]\n"
+        ret_str += "  [" + str(self.pubKey[6:14]) +"]\n"
+        ret_str += "  [" + str(self.pubKey[14:22]) + "]\n"
+        ret_str += "  [" + str(self.pubKey[22:30]) + "]\n"
+        ret_str += "  [" + str(self.pubKey[30:32]) + " Time:%d]\n" % (self.time)
+        ret_str += "  [AuthTag:" + str(self.authTag[:8]) + "]\n"
+        ret_str += "  [" + str(self.authTag[8:16]) + "]\n"
+        ret_str += "  [Auth:" + str(self.auth[:8]) + "]\n"
+        ret_str += "  [" + str(self.auth[8:16]) + "]\n"
+        ret_str += "  [" + str(self.auth[16:24]) + "]\n"
+        ret_str += "  [" + str(self.auth[24:32]) + "]\n"
+        ret_str += "  [" + str(self.auth[32:40]) + "]\n"
+        ret_str += "  [" + str(self.auth[40:48]) + "]\n"
         
+        print(self.hopInfo)
         for (encKey, sigKey) in self.hopInfo:
-            ret_str += "  [EncKey:%d]\n" % (encKey[:8])
-            ret_str += "  [%d]\n" % (encKey[8:16])
-            ret_str += "  [SigKey:%d]\n" % (sigKey[:8])
-            ret_str += "  [%d]\n" % (sigKey[8:16])
-            ret_str += "  [%d]\n" % (sigKey[16:24])
-            ret_str += "  [%d]\n" % (sigKey[24:32])
-            ret_str += "  [%d]\n" % (sigKey[32:40])
-            ret_str += "  [%d]\n" % (sigKey[40:48])
-            ret_str += "  [%d]\n" % (sigKey[48:56])
-            ret_str += "  [%d]\n" % (sigKey[56:64])
+            ret_str += "  [EncKey:" + str(encKey[:8]) + "]\n"
+            ret_str += "  [" + str(encKey[8:16]) + "]\n"
+            ret_str += "  [SigKey:" + str(sigKey[:8]) + "]\n"
+            ret_str += "  [" + str(sigKey[8:16]) + "]\n"
+            ret_str += "  [" + str(sigKey[16:24]) + "]\n"
+            ret_str += "  [" + str(sigKey[24:32]) + "]\n"
+            ret_str += "  [" + str(sigKey[32:40]) + "]\n"
+            ret_str += "  [" + str(sigKey[40:48]) + "]\n"
+            ret_str += "  [" + str(sigKey[48:56]) + "]\n"
+            ret_str += "  [" + str(sigKey[56:64]) + "]\n"
             
         ret_str += "[DRKey Ext - end]"
-        return ret_str     
-
+        return ret_str
+    
+def drkey_handler(**kwargs):
+    """
+    The handler for the DRKey extension
+    """
+    ext = kwargs['ext']
+    conf = kwargs['conf']
+    topo = kwargs['topo']
+    
+    # Derive the PRF key from the AS master key
+    prfKey = AES.new(conf.master_ad_key, AES.MODE_CBC)
+    print("len prfKey" + str(len(prfKey)))
+    # Generate the key to be shared with the source
+    cipher = AES.new(prfKey, AES.MODE_CBC)
+    sharedKey = cipher.encrypt(ext.sessionID)
+    print("len shared key " + str(len(sharedKey)))
+    # Encrypt the key with the public key of the session
+    pubkey = RSA.importKey(ext.pubKey)
+    cipher = PKCS1_OAEP.new(pubkey)
+    encSharedKey = cipher.encrypt(sharedKey, SHA384)
+    print("len enc " + str(len(encSharedKey)))
+    # Sign using ed25519 the encrypted shared key
+    sigKeyFile = get_sig_key_file_path(topo.isd_id, topo.ad_id)
+    signingKey = read_file(sigKeyFile)
+    signingKey = base64.b64decode(signingKey)
+    sign(encSharedKey, signingKey)
   
             
         

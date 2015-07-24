@@ -24,6 +24,7 @@ from ipaddress import IPv4Address
 from lib.defines import L4_PROTO
 from lib.packet.ext_hdr import ExtensionHeader
 from lib.packet.ext.traceroute import TracerouteExt
+from lib.packet.ext.drkey import DRKeyExt
 from lib.packet.opaque_field import (
     InfoOpaqueField,
     OpaqueField,
@@ -42,7 +43,8 @@ from lib.packet.scion_addr import ISD_AD, SCIONAddr
 # Dictionary of supported extensions (i.e., parsed by SCIONHeader)
 EXTENSIONS = {
     ExtensionHeader.TYPE: ExtensionHeader,
-    TracerouteExt.TYPE: TracerouteExt
+    TracerouteExt.TYPE: TracerouteExt,
+    DRKeyExt.TYPE : DRKeyExt
 }
 
 
@@ -207,6 +209,7 @@ class SCIONHeader(HeaderBase):
             ext_hdrs = []
         if ext_hdrs:
             next_hdr = ext_hdrs[0].TYPE
+            logging.info("next header is %u",next_hdr)
         else:
             next_hdr = l4_proto
         hdr = SCIONHeader()
