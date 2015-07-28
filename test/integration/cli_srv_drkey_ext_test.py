@@ -18,6 +18,7 @@
 # Stdlib
 from Crypto.PublicKey import RSA
 from Crypto.Hash import SHA256
+from Crypto.Cipher import PKCS1_OAEP
 import logging
 import socket
 import struct
@@ -31,7 +32,7 @@ from endhost.sciond import SCIONDaemon
 from lib.defines import SCION_BUFLEN, SCION_UDP_EH_DATA_PORT
 from lib.crypto.symcrypto import sha3hash, authenticated_encrypt, authenticated_decrypt,\
     get_roundkey_cache
-from lib.packet.ext.drkey import DRKeyExt, DRKeyExtCont
+from lib.packet.ext.drkey import DRKeyExt, DRKeyExtCont, DRKeyExtResp
 from lib.packet.ext_hdr import ExtensionHeader
 from lib.packet.scion import SCIONPacket
 from lib.packet.scion_addr import SCIONAddr
@@ -134,6 +135,17 @@ def client():
     # Waiting for a response
     raw, _ = sock.recvfrom(SCION_BUFLEN)
     print('\n\nCLI: Received response:\n%s' % SCIONPacket(raw))
+    spkt = SCIONPacket(raw)
+    for drkeyRespExt in spkt.hdr.extension_hdrs:
+        if drkeyRespExt.TYPE == DRKeyExtResp.TYPE:
+            break
+    dec = authenticated_decrypt(expandedSDkey, drkeyRespExt.auth+drkeyRespExt.authTag, b"")
+    keyOffset = 1223
+    keys = []
+    while keyOffset < len(dec) - 16:
+        keys.append(dec[keyOffset:keyOffset+16])
+        keyOffset += 16
+    print(keys)
     print("CLI: leaving.")
     sock.close()
     sd.clean()
@@ -156,16 +168,72 @@ def server():
     # Request received, instantiating SCION packet
     spkt = SCIONPacket(raw)
     print('SRV: received: %s', spkt)
+    ## Check the session ID integrity
+    for drkeyExt in spkt.hdr.extension_hdrs:
+        if drkeyExt.TYPE == DRKeyExt.TYPE:
+            break
+    sessionPublicKeyStr = b64encode(drkeyExt.pubKey).decode()
+    crtTime = drkeyExt.time
+    path = spkt.hdr._path
+    hashInputComp = []
+    hashInputComp.append(sessionPublicKeyStr)
+    hashInputComp.append(str(path))
+    hashInputComp.append(str(crtTime))
+    hashInput = "".join(hashInputComp)
+    hashOutput = sha3hash(hashInput, 'SHA3-256')[:32]
+    sessionID = bytes(bytearray.fromhex(hashOutput.decode()))
+    if drkeyExt.sessionID != sessionID:
+        print("Different session ID")
+    
+    ## Decrypt and authenticate auth
+    SDkey = b"\x03" * 16
+    expandedSDkey = get_roundkey_cache(SDkey)
+    print(drkeyExt.auth+drkeyExt.authTag)
+    dec = authenticated_decrypt(expandedSDkey, drkeyExt.auth+drkeyExt.authTag, b"")
+    decSessionID = dec[:16]
+    decPrivKey = dec[16:1207]
+    if drkeyExt.sessionID != decSessionID:
+        print("Different session ID 2")
+    privkey = RSA.importKey(decPrivKey)
+    cipher = PKCS1_OAEP.new(privkey)
+    
+    ## Decrypt the keys
+    keys = []
+    nrKeys = drkeyExt.maxHops
+    for ext in spkt.hdr.extension_hdrs:
+        if ext.TYPE == DRKeyExtCont.TYPE:
+            for (encKey, sigKey) in ext.hopInfo:
+                key = cipher.decrypt(encKey)
+                # TODO check signature
+                keys.append(key)
+    
     if spkt.payload == b"request to server":
         print('SRV: request received, sending response.')
-        # Reverse the packet
+        # Create a drkey reply packet
         spkt.hdr.reverse()
-        # Setting payload
-        spkt.payload = b"response"
+        revPath = spkt.hdr._path
+        nrHops = int(len(revPath.pack()) / 8)
+        authInput = bytearray()
+        authInput.extend(drkeyExt.auth)
+        authInput.extend(drkeyExt.authTag)
+        for key in keys:
+            authInput.extend(key)
+        authInput = bytes(authInput)
+        authEnc = authenticated_encrypt(expandedSDkey, authInput, b"")
+        authLen = 1223 + nrHops * DRKeyExtResp.HOP_OVERHEAD
+        auth = authEnc[:authLen] 
+        authTag = authEnc[authLen:authLen + 16]
+        drkeyRespExt = DRKeyExtResp.from_values(nrHops, auth, authTag)
+        extensions = [drkeyRespExt]
+        payload = b"response"
+        revspkt = SCIONPacket.from_values(spkt.hdr.src_addr, spkt.hdr.dst_addr, payload, revPath,
+                                   ext_hdrs=extensions)
+        
         # Determine first hop (i.e., local address of border router)
-        (next_hop, port) = sd.get_first_hop(spkt)
+        (next_hop, port) = sd.get_first_hop(revspkt)
         # Send packet to first hop (it is sent through SCIONDaemon)
-        sd.send(spkt, next_hop, port)
+        print("CLI: Sending packet: %s\nFirst hop: %s:%s" % (revspkt, next_hop, port))
+        sd.send(revspkt, next_hop, port)
     print("SRV: Leaving server.")
     sock.close()
     sd.clean()

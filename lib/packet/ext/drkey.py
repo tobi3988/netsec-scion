@@ -77,7 +77,6 @@ class DRKeyExt(ExtensionHeader):
         """
         
         ExtensionHeader.__init__(self)
-        self.hopInfo=[]
         if raw is not None:
             self.parse(raw)
             self.parse_payload()
@@ -286,7 +285,106 @@ class DRKeyExtCont(ExtensionHeader):
             
         ret_str += "[DRKey Ext CONT - end]"
         return ret_str    
+
+class DRKeyExtResp(ExtensionHeader):
+    """
+    DRKey response header containing the keys generated at each hop,
+    authenticated and encrypted by D. 
     
+    0          8         16           32     40      48       56      64
+    | next hdr | hdr len |  reserved                                  |     
+    | nrHops   s| Auth (at least 1223 B = 153 lines) ..                |  
+    AuthTag (16 B = 2 lines) ..                                       |
+    
+    :param next hdr:
+    :type next hdr: unsigned char
+    :param hdr len:
+    :type hdr len: unsigned char
+    :param reserved: reserved bytes
+    :type reserved: 6 B
+    :param nrHops:
+    :type nrHops: unsigned char
+    :param Auth:
+    :type Auth: 1223 B + nrHops * 16 B
+    :param AuthTag:
+    :type AuthTag: 16 B
+    """
+
+    TYPE = 34  # Extension header type
+    MIN_LEN = 1248
+    HOP_OVERHEAD = 16
+    
+    def __init__(self, raw=None):
+        """
+        Initialize an instance of the class DRKeyExtCont
+        
+        :param raw:
+        :type raw: 
+        """
+        
+        ExtensionHeader.__init__(self)
+        self.nrHops = 0
+        if raw is not None:
+            self.parse(raw)
+            self.parse_payload()
+        
+    def parse_payload(self):
+        """
+        Parse the payload to extract the session setup information
+        """
+        payload = self.payload
+        
+        self.reserved = struct.unpack("!6s", payload[:6])[0]
+        self.nrHops = struct.unpack("!B", payload[6:7])[0]
+        authLen = 1223 + self.nrHops *  self.HOP_OVERHEAD
+        self.auth = struct.unpack("!" + str(authLen) + "s", payload[7:authLen+7])[0]
+        self.authTag = struct.unpack("!16s", payload[authLen+7:authLen+23])[0]
+    
+    @staticmethod
+    def from_values(nrHops, auth, authTag):
+        """
+        Create an instance of the DRKeyExtResp class.
+
+        :param nrHops: the number of hops
+        :type nrHops: int
+
+        :returns: DRKeyResp extension.
+        :rtype: :class:`DRKeyExtResp`
+        """
+        ext = DRKeyExtResp()
+        ext.set_payload(b'a'*(7 + 1223 + nrHops * ext.HOP_OVERHEAD + 16))
+        ext.reserved = b"\x00" * 6
+        ext.nrHops = nrHops
+        ext.auth = auth
+        ext.authTag = authTag
+        return ext
+          
+    def pack(self):
+        """
+        Pack the extension header to bytes
+        """
+        packing = []
+        authLen = 1223 + self.nrHops * self.HOP_OVERHEAD
+        packing.append(struct.pack("!6s", self.reserved))
+        packing.append(struct.pack("!B", self.nrHops))
+        packing.append(struct.pack("!" + str(authLen) + "s", self.auth))
+        packing.append(struct.pack("!16s", self.authTag))
+        self.payload = b"".join(packing)
+        ExtensionHeader.set_payload(self, self.payload)
+        
+        return ExtensionHeader.pack(self)
+    
+    def __str__(self):
+        
+        ret_str = "[DRKey Ext Response - start]\n"
+        ret_str += "  [next_hdr: %d, len: %d reserved: " % (self.next_hdr, len(self)) + str(self.reserved) +"]\n"
+        ret_str += "  [NrHops: %d" % (self.nrHops) + "]...\n"
+        ret_str += "  [Auth: " + str(self.auth[:8]) + "]...\n"
+        ret_str += "  [AuthTag: " + str(self.authTag[:8]) + "]...\n"
+            
+        ret_str += "[DRKey Ext Response - end]"
+        return ret_str
+
 def drkey_handler(**kwargs):
     """
     The handler for the DRKey extension
@@ -340,6 +438,9 @@ def drkey_handler(**kwargs):
     crtExt.change_hop_key(extOffset, encSharedKey, sigSharedKey)
 
 def drkeycont_handler(**kwargs):
+    pass
+
+def drkeyresp_handler(**kwargs):
     pass
   
             

@@ -24,7 +24,7 @@ from ipaddress import IPv4Address
 from lib.defines import L4_PROTO
 from lib.packet.ext_hdr import ExtensionHeader
 from lib.packet.ext.traceroute import TracerouteExt
-from lib.packet.ext.drkey import DRKeyExt, DRKeyExtCont
+from lib.packet.ext.drkey import DRKeyExt, DRKeyExtCont, DRKeyExtResp
 from lib.packet.opaque_field import (
     InfoOpaqueField,
     OpaqueField,
@@ -45,7 +45,8 @@ EXTENSIONS = {
     ExtensionHeader.TYPE: ExtensionHeader,
     TracerouteExt.TYPE: TracerouteExt,
     DRKeyExt.TYPE : DRKeyExt,
-    DRKeyExtCont.TYPE: DRKeyExtCont
+    DRKeyExtCont.TYPE: DRKeyExtCont,
+    DRKeyExtResp.TYPE: DRKeyExtResp
 }
 
 

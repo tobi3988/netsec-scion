@@ -561,9 +561,11 @@ def main():
 
     # router = Router(*sys.argv[1:])
     # Run router with an extension handler
-    from lib.packet.ext.drkey import DRKeyExt, DRKeyExtCont, drkey_handler, drkeycont_handler
+    from lib.packet.ext.drkey import DRKeyExt, DRKeyExtCont, drkey_handler, drkeycont_handler, \
+        DRKeyExtResp, drkeyresp_handler
     from lib.packet.ext.traceroute import TracerouteExt, traceroute_ext_handler
-    pre_handlers = {DRKeyExt.TYPE: drkey_handler, DRKeyExtCont.TYPE: drkeycont_handler, TracerouteExt.TYPE : traceroute_ext_handler}
+    pre_handlers = {DRKeyExt.TYPE: drkey_handler, DRKeyExtCont.TYPE: drkeycont_handler, \
+                    TracerouteExt.TYPE : traceroute_ext_handler, DRKeyExtResp.TYPE: drkeyresp_handler}
     router = Router(*sys.argv[1:], pre_ext_handlers=pre_handlers)
     #
     logging.info("Started: %s", datetime.datetime.now())
