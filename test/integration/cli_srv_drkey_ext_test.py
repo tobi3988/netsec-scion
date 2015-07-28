@@ -16,17 +16,22 @@
 ===========================================
 """
 # Stdlib
+from Crypto.PublicKey import RSA
+from Crypto.Hash import SHA256
 import logging
 import socket
 import struct
 import threading
 import time
+from base64 import b64decode, b64encode
 from ipaddress import IPv4Address
 
 # SCION
 from endhost.sciond import SCIONDaemon
 from lib.defines import SCION_BUFLEN, SCION_UDP_EH_DATA_PORT
-from lib.packet.ext.drkey import DRKeyExt
+from lib.crypto.symcrypto import sha3hash, authenticated_encrypt, authenticated_decrypt,\
+    get_roundkey_cache
+from lib.packet.ext.drkey import DRKeyExt, DRKeyExtCont
 from lib.packet.ext_hdr import ExtensionHeader
 from lib.packet.scion import SCIONPacket
 from lib.packet.scion_addr import SCIONAddr
@@ -61,15 +66,62 @@ def client():
     # Create plain extension with payload b"test"
     e1 = ExtensionHeader()
     e1.set_payload(b'test')
-    # Create DRKey extensions
+    # Create a DRKey extension
+    SDkey = b"\x03" * 16
+    ### Create the session key pair
+    sessionPrivateKey =  RSA.generate(2048)
+    sessionPrivateKeyDER = sessionPrivateKey.exportKey('DER')
+    sessionPublicKey = sessionPrivateKey.publickey()
+    sessionPublicKeyDER = sessionPublicKey.exportKey('DER')
+    sessionPublicKeyStr = b64encode(sessionPublicKeyDER).decode()
+    ### Get the current time
+    crtTime = int(time.time() * 1000) % 2**16
+    ### Create the sessionID
+    hashInputComp = []
+    hashInputComp.append(sessionPublicKeyStr)
+    hashInputComp.append(str(path))
+    hashInputComp.append(str(crtTime))
+    hashInput = "".join(hashInputComp)
+    hashOutput = sha3hash(hashInput, 'SHA3-256')[:32]
+    sessionID = bytes(bytearray.fromhex(hashOutput.decode()))
+    ### Create the session authenticator
+    expandedSDkey = get_roundkey_cache(SDkey)
+    authInput = bytearray(sessionID)
+    authInput.extend(sessionPrivateKeyDER)
+    authInput = bytes(authInput)
+    authEnc = authenticated_encrypt(expandedSDkey, authInput, b"")
+    auth = authEnc[:1207] 
+    authTag = authEnc[1207:1223]
+    ### Create the DRKeyExt object
     nrHops = int(len(path.pack()) / 8)
-    print("Max path length", nrHops)
-    e2 = DRKeyExt.from_values(b"\x01" * 16, b"\x01" * 32, 1, b"\x03" * 16, b"\x05" * 48, nrHops)
+    drkeyExt = DRKeyExt.from_values(sessionID, sessionPublicKeyDER, crtTime, authTag, auth, nrHops)
+    print("S initiated a DRKey setup with ")
+    print("sessionID")
+    print(sessionID)
+    print("session public key")
+    print(sessionPublicKeyDER)
+    print("time")
+    print(crtTime)
+    print("auth and tag")
+    print(auth)
+    print(authTag)
+    # Create a DRKeyCont extension to store the keys generated at each node
+    ### Compute how many extensions are needed
+    nrExtensions = int(nrHops / DRKeyExtCont.MAX_HOPS)
+    remainingHops = nrHops % DRKeyExtCont.MAX_HOPS
+    drkeyExtCont = []
+    for _ in range(0, nrExtensions):
+        drkeyExtCont.append(DRKeyExtCont.from_values(DRKeyExtCont.MAX_HOPS))
+    if remainingHops != 0:
+        drkeyExtCont.append(DRKeyExtCont.from_values(remainingHops))
     # Create another plain extension
     e3 = ExtensionHeader()
     # Create a SCION packet with the extensions
+    extensions = [e1, drkeyExt]
+    extensions += drkeyExtCont
+    extensions.append(e3)
     spkt = SCIONPacket.from_values(sd.addr, dst, payload, path,
-                                   ext_hdrs=[e1, e2, e3])
+                                   ext_hdrs=extensions)
     # Determine first hop (i.e., local address of border router)
     (next_hop, port) = sd.get_first_hop(spkt)
     print("CLI: Sending packet: %s\nFirst hop: %s:%s" % (spkt, next_hop, port))

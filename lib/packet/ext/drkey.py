@@ -17,82 +17,53 @@ import base64
 import struct
 
 from lib.crypto.asymcrypto import sign
-from lib.crypto.symcrypto import get_roundkey_cache
 from lib.packet.ext_hdr import ExtensionHeader
 from lib.util import get_sig_key_file_path, read_file
 
 from Crypto.Cipher import AES
 from Crypto.Cipher import PKCS1_OAEP
-from Crypto.Hash import SHA384
 from Crypto.PublicKey import RSA
 
 class DRKeyExt(ExtensionHeader):
     """
-    0          8         16           32            48               64
-    | next hdr | hdr len |  SessionID                                 |
+    DRKey header containing the source-generated values. The keys
+    generated at each hop are in the DRKeyExtCont header. A packet that
+    contains a DRKeyExt MUST contain at least one DRKeyExtCont header.
     
-                         | PubKey                                     |       
-                                                                      |   
-                                                                      |
-                                                                      |  
-                         | Time                                       |
-    AuthTag
-                                                                      |
-    Auth
-    
-    
-    
-    
-                                                                      |
-    EncSharedKey1
-                                                                      |
-    SignedSharedKey1
-    
-    
-    
-    
-    
-    
-                                                                      |
-    EncSharedKey2
-                                                                      |
-    SignedSharedKey2
-    
-    
-    
-    
-    
-    
-                                                                      |
-    ...                                                        
-    
-    0          8         16         144    400     432       560    944      944 + 80*8*nrHops
-    | next hdr | hdr len | SessionID | PKey | Time | Auth tag | Auth | hop info |
+    0          8         16           32     40      48       56      64
+    | next hdr | hdr len |  reserved         | maxHops| crtHop |
+    SessionID  (16 B = 2 lines) ...                           |
+    PubKey (294 B = 36 lines, 6 B) ...                           
+                                              | Time (4 B)  
+               | AuthTag (16 B = 2 lines) ... 
+               | Auth (1207 B = 150 lines, 7 B)  ...                  |           
     
     :param next hdr:
     :type next hdr: unsigned char
     :param hdr len:
     :type hdr len: unsigned char
+    :param reserved: reserved bytes
+    :type reserved: 3 B
+    :param maxHops: nr of hops to process the extension
+    :type maxHops: unsigned char
+    :param crtHop: the nr of the current hop
+    :type crtHop: unsigned char
     :param SessionID:
     :type SessionID: 16 B
     :param PubKey: session public key
-    :type PubKey: 32 B
+    :type PubKey: 294 B
     :cvar Time: current time
     :type Time: 4 B
     :cvar AuthTag:
     :type AuthTag: 16 B
     :cvar Auth: session authenticator
-    :type Auth: 48 B
-    --------------- 118 B = 944 bits => 944/16 = 59 header lines
-    :param EncSharedKey_i
-    :type EncSharedKey_i: 16 B
-    :param SignedSharedKey_i
-    :type SignedSharedKey_i: 64 B
+    :type Auth: 1207 B
+    --------------- 1544 B = 193 header lines
     """
 
     TYPE = 33  # Extension header type
-    MIN_LEN = 118
-    HOP_OVERHEAD_ENC = 16 # 16 B encrypted shared key
+    MIN_LEN = 1544
+    HOP_OVERHEAD_ENC = 256 # 256 B encrypted shared key
     HOP_OVERHEAD_SIG = 64 # 64 B signature of encrypted shared key
     HOP_OVERHEAD = HOP_OVERHEAD_ENC + HOP_OVERHEAD_SIG
     
@@ -109,8 +80,6 @@ class DRKeyExt(ExtensionHeader):
         self.hopInfo=[]
         if raw is not None:
             self.parse(raw)
-            print("payload is ")
-            print(self.payload)
             self.parse_payload()
         
     def parse_payload(self):
@@ -119,47 +88,164 @@ class DRKeyExt(ExtensionHeader):
         """
         payload = self.payload
         
-        print(payload[:16])
-        
-        self.sessionID = struct.unpack("!16s", payload[:16])
-        self.pubKey = struct.unpack("!32s", payload[16:48])
-        self.time = struct.unpack("!i", payload[48:52])
-        self.authTag = struct.unpack("!16s", payload[52:68])
-        self.auth = struct.unpack("!48s", payload[68:118])
-        
-        payload = payload[118:]
-        
-        while payload:
-            encKey = struct.unpack("!16s", payload[:16])
-            signedKey = struct.unpack("!64s", payload[16:80])
-            self.hopInfo.append((encKey, signedKey))
-            payload = payload[80:]
+        self.reserved = struct.unpack("!3s", payload[:3])[0]
+        self.maxHops = struct.unpack("!B", payload[3:4])[0]
+        self.crtHop = struct.unpack("!B", payload[4:5])[0]
+        self.sessionID = struct.unpack("!16s", payload[5:21])[0]
+        self.pubKey = struct.unpack("!294s", payload[21:315])[0]
+        self.time = struct.unpack("!i", payload[315:319])[0]
+        self.authTag = struct.unpack("!16s", payload[319:335])[0]
+        self.auth = struct.unpack("!1207s", payload[335:1542])[0]
     
     @staticmethod
-    def from_values(sessionID, pubKey, time, authTag, auth, nrHops):
+    def from_values(sessionID, pubKey, time, authTag, auth, maxHops):
         """
         Create an instance of the DRKeyExt class.
 
         :param sessionID: the DRKey session id
         :type sessionID: 16 B
         :param pubKey: the DRKey session public key
-        :type pubKey: 32 B
+        :type pubKey: 294 B
         :param time: current time
         :type time: 4 B
         :param authTag: the authenticator tag for the session authenticator
         :type authTag: 16 B
         :param auth: session authenticator
-        :type auth: 48 B
+        :type auth: 1207 B
+        :param maxHops: nr of hops to process the extension
+        :type maxHops: unsigned char
 
         :returns: DRKey extension.
         :rtype: :class:`DRKeyExt`
         """
         ext = DRKeyExt()
+        ext.set_payload(b'a'*1542)
+        ext.reserved = b"\x00" * 4
+        ext.crtHop = -1
         ext.sessionID = sessionID
         ext.pubKey = pubKey
         ext.time = time
         ext.authTag = authTag
         ext.auth = auth
+        ext.maxHops = maxHops
+        return ext
+           
+    def pack(self):
+        """
+        Pack the extension header to bytes
+        """
+        self.crtHop += 1
+        
+        packing = []
+        packing.append(struct.pack("!3s", self.reserved))
+        packing.append(struct.pack("!B", self.maxHops))
+        packing.append(struct.pack("!B", self.crtHop))
+        packing.append(struct.pack("!16s", self.sessionID))
+        packing.append(struct.pack("!294s", self.pubKey))
+        packing.append(struct.pack("!i", self.time))
+        packing.append(struct.pack("!16s", self.authTag))
+        packing.append(struct.pack("!1207s", self.auth))
+        
+        self.payload = b"".join(packing)
+        ExtensionHeader.set_payload(self, self.payload)
+
+        return ExtensionHeader.pack(self)
+    
+    def __str__(self):
+        
+        ret_str = "[DRKey Ext - start]\n"
+        
+        ret_str += "  [next_hdr: %d, len: %d reserved: " % (self.next_hdr, len(self)) + str(self.reserved) +"]\n"
+        ret_str += "  [maxHops: %d" % self.maxHops +"]\n"
+        ret_str += "  [crtHop: %d" % self.crtHop +"]\n"
+        ret_str += "  [SessionID: " + str(self.sessionID[:8]) + "]...\n"
+        ret_str += "  [PubKey: " + str(self.pubKey[:8]) +"]...\n"
+        ret_str += "  [Time: %d]" % (self.time) + "\n"
+        ret_str += "  [AuthTag: " + str(self.authTag[:8]) + "]...\n"
+        ret_str += "  [Auth: " + str(self.auth[:8]) + "]...\n"
+
+        ret_str += "[DRKey Ext - end]"
+        return ret_str
+    
+class DRKeyExtCont(ExtensionHeader):
+    """
+    DRKey header containing the keys generated at each hop. It can The
+    source-generated values are in the DRKeyExt header. A packet that
+    contains a DRKeyExt MUST contain at least one DRKeyExtCont header.
+    This extension DOES NOT have its own handler, instead it is used
+    by the drkey_handler to store the shared keys.
+    
+    0          8         16           32     40      48       56      64
+    | next hdr | hdr len |  reserved                                  |     
+    EncSharedKey1 (256 B = 32 lines) ..                               |  
+    SignedSharedKey1 (64 B = 8 lines) ..                              |
+    EncSharedKey2 (256 B = 32 lines) ..                               |  
+    SignedSharedKey2 (64 B = 8 lines) ..                              |
+    ...
+    
+    :param next hdr:
+    :type next hdr: unsigned char
+    :param hdr len:
+    :type hdr len: unsigned char
+    :param reserved: reserved bytes
+    :type reserved: 6 B
+    :param EncSharedKey_i
+    :type EncSharedKey_i: 256 B
+    :param SignedSharedKey_i
+    :type SignedSharedKey_i: 64 B
+    """
+
+    TYPE = 133  # Extension header type
+    MIN_LEN = 328 # One hop and preamble
+    MAX_HOPS = 6 # Maximum number of hops on which the extension can store information
+    HOP_OVERHEAD_ENC = 256 # 256 B encrypted shared key
+    HOP_OVERHEAD_SIG = 64 # 64 B signature of encrypted shared key
+    HOP_OVERHEAD = HOP_OVERHEAD_ENC + HOP_OVERHEAD_SIG
+    
+    
+    def __init__(self, raw=None):
+        """
+        Initialize an instance of the class DRKeyExtCont
+        
+        :param raw:
+        :type raw: 
+        """
+        
+        ExtensionHeader.__init__(self)
+        self.hopInfo=[]
+        if raw is not None:
+            self.parse(raw)
+            self.parse_payload()
+        
+    def parse_payload(self):
+        """
+        Parse the payload to extract the session setup information
+        """
+        payload = self.payload
+        
+        self.reserved = struct.unpack("!6s", payload[:6])[0]
+        payload = payload[6:]
+        
+        while payload:
+            encKey = struct.unpack("!256s", payload[:256])[0]
+            signedKey = struct.unpack("!64s", payload[256:320])[0]
+            self.hopInfo.append((encKey, signedKey))
+            payload = payload[320:]
+    
+    @staticmethod
+    def from_values(nrHops):
+        """
+        Create an instance of the DRKeyExtCont class.
+
+        :param nrHops: the number of hops
+        :type nrHops: int
+
+        :returns: DRKeyCont extension.
+        :rtype: :class:`DRKeyExtCont`
+        """
+        ext = DRKeyExtCont()
+        ext.set_payload(b'a'*(nrHops*ext.HOP_OVERHEAD+6))
+        ext.reserved = b"\x00" * 6
         for _ in range(0,nrHops):
             ext.hopInfo.append((b"\x00" * ext.HOP_OVERHEAD_ENC, b"\x00" * ext.HOP_OVERHEAD_SIG))
         return ext
@@ -178,54 +264,28 @@ class DRKeyExt(ExtensionHeader):
         Pack the extension header to bytes
         """
         packing = []
-        packing.append(struct.pack("!16s", self.sessionID))
-        packing.append(struct.pack("!32s", self.pubKey))
-        packing.append(struct.pack("!i", self.time))
-        packing.append(struct.pack("!16s", self.authTag))
-        packing.append(struct.pack("!48s", self.auth))
-
+        packing.append(struct.pack("!6s", self.reserved))
+       
         for (encKey, sigKey) in self.hopInfo:
-            tmp = struct.pack("!16s64s", encKey, sigKey)
+            tmp = struct.pack("!256s64s", encKey, sigKey)
             packing.append(tmp)
-        print(packing)
+        
         self.payload = b"".join(packing)
-
+        ExtensionHeader.set_payload(self, self.payload)
+        
         return ExtensionHeader.pack(self)
     
     def __str__(self):
         
-        ret_str = "[DRKey Ext - start]\n"
-        ret_str += "  [next_hdr:%d, len:%d self.sessionID:" % (self.next_hdr, len(self)) + str(self.sessionID[:6]) +"]\n"
-        ret_str += "  [" + str(self.sessionID[6:14]) +"]\n"
-        ret_str += "  [" + str(self.sessionID[14:16]) +" PubKey:" + str(self.pubKey[:6]) +"]\n"
-        ret_str += "  [" + str(self.pubKey[6:14]) +"]\n"
-        ret_str += "  [" + str(self.pubKey[14:22]) + "]\n"
-        ret_str += "  [" + str(self.pubKey[22:30]) + "]\n"
-        ret_str += "  [" + str(self.pubKey[30:32]) + " Time:%d]\n" % (self.time)
-        ret_str += "  [AuthTag:" + str(self.authTag[:8]) + "]\n"
-        ret_str += "  [" + str(self.authTag[8:16]) + "]\n"
-        ret_str += "  [Auth:" + str(self.auth[:8]) + "]\n"
-        ret_str += "  [" + str(self.auth[8:16]) + "]\n"
-        ret_str += "  [" + str(self.auth[16:24]) + "]\n"
-        ret_str += "  [" + str(self.auth[24:32]) + "]\n"
-        ret_str += "  [" + str(self.auth[32:40]) + "]\n"
-        ret_str += "  [" + str(self.auth[40:48]) + "]\n"
+        ret_str = "[DRKey Ext CONT - start]\n"
+        ret_str += "  [next_hdr: %d, len: %d reserved: " % (self.next_hdr, len(self)) + str(self.reserved) +"]\n"
         
-        print(self.hopInfo)
         for (encKey, sigKey) in self.hopInfo:
-            ret_str += "  [EncKey:" + str(encKey[:8]) + "]\n"
-            ret_str += "  [" + str(encKey[8:16]) + "]\n"
-            ret_str += "  [SigKey:" + str(sigKey[:8]) + "]\n"
-            ret_str += "  [" + str(sigKey[8:16]) + "]\n"
-            ret_str += "  [" + str(sigKey[16:24]) + "]\n"
-            ret_str += "  [" + str(sigKey[24:32]) + "]\n"
-            ret_str += "  [" + str(sigKey[32:40]) + "]\n"
-            ret_str += "  [" + str(sigKey[40:48]) + "]\n"
-            ret_str += "  [" + str(sigKey[48:56]) + "]\n"
-            ret_str += "  [" + str(sigKey[56:64]) + "]\n"
+            ret_str += "  [EncKey: " + str(encKey[:8]) + "]...\n"
+            ret_str += "  [SigKey: " + str(sigKey[:8]) + "]...\n"
             
-        ret_str += "[DRKey Ext - end]"
-        return ret_str
+        ret_str += "[DRKey Ext CONT - end]"
+        return ret_str    
     
 def drkey_handler(**kwargs):
     """
@@ -234,24 +294,53 @@ def drkey_handler(**kwargs):
     ext = kwargs['ext']
     conf = kwargs['conf']
     topo = kwargs['topo']
+    pkt = kwargs['spkt']
+    
+    print(str(topo.ad_id)+' received: %s', pkt)
+    
+    if ext.crtHop >= ext.maxHops:
+        return
     
     # Derive the PRF key from the AS master key
-    prfKey = AES.new(conf.master_ad_key, AES.MODE_CBC)
-    print("len prfKey" + str(len(prfKey)))
+    nodeSecret = b"\x00" * 16
+    cipher = AES.new(conf.master_ad_key, AES.MODE_CBC, nodeSecret)
+    prfKey = cipher.encrypt(conf.master_ad_key)
     # Generate the key to be shared with the source
-    cipher = AES.new(prfKey, AES.MODE_CBC)
+    cipher = AES.new(prfKey, AES.MODE_CBC, nodeSecret)
     sharedKey = cipher.encrypt(ext.sessionID)
-    print("len shared key " + str(len(sharedKey)))
+    print("shared key at node ")
+    print(topo.ad_id)
+    print(sharedKey)
     # Encrypt the key with the public key of the session
     pubkey = RSA.importKey(ext.pubKey)
     cipher = PKCS1_OAEP.new(pubkey)
-    encSharedKey = cipher.encrypt(sharedKey, SHA384)
+    encSharedKey = cipher.encrypt(sharedKey)
     print("len enc " + str(len(encSharedKey)))
-    # Sign using ed25519 the encrypted shared key
+    # Sign using ed25519 the shared key and the session id
     sigKeyFile = get_sig_key_file_path(topo.isd_id, topo.ad_id)
     signingKey = read_file(sigKeyFile)
     signingKey = base64.b64decode(signingKey)
-    sign(encSharedKey, signingKey)
+    sigInput = bytearray(sharedKey)
+    sigInput.extend(ext.sessionID)
+    sigInput = bytes(sigInput) 
+    sigSharedKey = sign(sigInput, signingKey)
+    # Insert the encryped key and the signature in the packet
+    ## Determine the index of the DRKeyExtCont header to update
+    print("crtHop")
+    print(ext.crtHop)
+    extIndex = int(ext.crtHop / DRKeyExtCont.MAX_HOPS)
+    extOffset = ext.crtHop % DRKeyExtCont.MAX_HOPS
+    ## Extract the DRKeyExtCont from the packet
+    idx = -1
+    for crtExt in pkt.hdr.extension_hdrs:
+        if crtExt.TYPE == DRKeyExtCont.TYPE:
+            idx += 1
+        if idx == extIndex:
+            break
+    crtExt.change_hop_key(extOffset, encSharedKey, sigSharedKey)
+
+def drkeycont_handler(**kwargs):
+    pass
   
             
         

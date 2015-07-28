@@ -39,6 +39,7 @@ class ExtensionHeader(HeaderBase):
     :type parsed:
     """
     MIN_LEN = 8
+    LINE_LEN = 8
     TYPE = 200  # Type for a plain extension.
 
     def __init__(self, raw=None):
@@ -89,12 +90,12 @@ class ExtensionHeader(HeaderBase):
             payload += b"\x00" * (6 - payload_len)
             payload_len = 6
         payload_len -= 6  # After -6 it should be a multiplication of 8.
-        to_pad = payload_len % self.MIN_LEN
+        to_pad = payload_len % self.LINE_LEN
         if to_pad:  # FIXME(PSz): Should we (or ext developer) pad it?
             logging.warning("Extension is unpadded, adding padding.")
-            payload += b"\x00" * (self.MIN_LEN - to_pad)
-            payload_len += self.MIN_LEN - to_pad
-        self._hdr_len = payload_len // self.MIN_LEN
+            payload += b"\x00" * (self.PADDINGN - to_pad)
+            payload_len += self.LINE_LEN - to_pad
+        self._hdr_len = payload_len // self.LINE_LEN
         self.payload = payload
 
     def pack(self):
@@ -105,9 +106,9 @@ class ExtensionHeader(HeaderBase):
 
     def __len__(self):
         """
-        Return length of extenion header in bytes.
+        Return length of extension header in bytes.
         """
-        return (self._hdr_len + 1) * self.MIN_LEN
+        return (self._hdr_len + 1) * self.LINE_LEN
 
     def __str__(self):
         """

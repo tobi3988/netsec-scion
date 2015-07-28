@@ -24,7 +24,7 @@ from ipaddress import IPv4Address
 from lib.defines import L4_PROTO
 from lib.packet.ext_hdr import ExtensionHeader
 from lib.packet.ext.traceroute import TracerouteExt
-from lib.packet.ext.drkey import DRKeyExt
+from lib.packet.ext.drkey import DRKeyExt, DRKeyExtCont
 from lib.packet.opaque_field import (
     InfoOpaqueField,
     OpaqueField,
@@ -44,7 +44,8 @@ from lib.packet.scion_addr import ISD_AD, SCIONAddr
 EXTENSIONS = {
     ExtensionHeader.TYPE: ExtensionHeader,
     TracerouteExt.TYPE: TracerouteExt,
-    DRKeyExt.TYPE : DRKeyExt
+    DRKeyExt.TYPE : DRKeyExt,
+    DRKeyExtCont.TYPE: DRKeyExtCont
 }
 
 
@@ -282,7 +283,11 @@ class SCIONHeader(HeaderBase):
         """
         assert isinstance(ext_hdr, ExtensionHeader)
         self._extension_hdrs.append(ext_hdr)
-        self.common_hdr.total_len += len(ext_hdr)
+        # print("len before")
+        # print(self.common_hdr.total_len)
+        # self.common_hdr.total_len += len(ext_hdr)
+        # print("len after")
+        # print(self.common_hdr.total_len)
 
     def pop_ext_hdr(self):
         """
@@ -291,7 +296,7 @@ class SCIONHeader(HeaderBase):
         if not self._extension_hdrs:
             return
         ext_hdr = self._extension_hdrs.pop()
-        self.common_hdr.total_len -= len(ext_hdr)
+        # self.common_hdr.total_len -= len(ext_hdr)
         return ext_hdr
 
     def parse(self, raw):
