@@ -205,7 +205,7 @@ class Router(SCIONElement):
             if ext_nr in handlers:
                 handlers[ext_nr](spkt=spkt, next_hop=next_hop, ext=ext_hdr,
                                  conf=self.config, topo=self.topology,
-                                 iface=self.interface)
+                                 iface=self.interface, logging=logging)
             else:
                 logging.debug("No handler for extension type %u", ext_nr)
             ext_nr = ext_hdr.next_hdr

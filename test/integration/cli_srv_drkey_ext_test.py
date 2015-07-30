@@ -90,12 +90,10 @@ def client():
     authInput = bytearray(sessionID)
     authInput.extend(sessionPrivateKeyDER)
     authInput = bytes(authInput)
-    authEnc = authenticated_encrypt(expandedSDkey, authInput, b"")
-    auth = authEnc[:1207] 
-    authTag = authEnc[1207:1223]
+    auth = authenticated_encrypt(expandedSDkey, authInput, b"")
     ### Create the DRKeyExt object
     nrHops = int(len(path.pack()) / 8)
-    drkeyExt = DRKeyExt.from_values(sessionID, sessionPublicKeyDER, crtTime, authTag, auth, nrHops)
+    drkeyExt = DRKeyExt.from_values(sessionID, sessionPublicKeyDER, crtTime, auth, len(sessionPrivateKeyDER))
     print("S initiated a DRKey setup with ")
     print("sessionID")
     print(sessionID)
@@ -103,9 +101,8 @@ def client():
     print(sessionPublicKeyDER)
     print("time")
     print(crtTime)
-    print("auth and tag")
+    print("auth")
     print(auth)
-    print(authTag)
     # Create a DRKeyCont extension to store the keys generated at each node
     ### Compute how many extensions are needed
     nrExtensions = int(nrHops / DRKeyExtCont.MAX_HOPS)
@@ -139,10 +136,10 @@ def client():
     for drkeyRespExt in spkt.hdr.extension_hdrs:
         if drkeyRespExt.TYPE == DRKeyExtResp.TYPE:
             break
-    dec = authenticated_decrypt(expandedSDkey, drkeyRespExt.auth+drkeyRespExt.authTag, b"")
-    keyOffset = 1223
+    dec = authenticated_decrypt(expandedSDkey, drkeyRespExt.auth, b"")
+    keyOffset = len(dec) - drkeyRespExt.HOP_OVERHEAD * drkeyRespExt.nrHops
     keys = []
-    while keyOffset < len(dec) - 16:
+    while keyOffset < len(dec):
         keys.append(dec[keyOffset:keyOffset+16])
         keyOffset += 16
     print(keys)
@@ -188,10 +185,9 @@ def server():
     ## Decrypt and authenticate auth
     SDkey = b"\x03" * 16
     expandedSDkey = get_roundkey_cache(SDkey)
-    print(drkeyExt.auth+drkeyExt.authTag)
-    dec = authenticated_decrypt(expandedSDkey, drkeyExt.auth+drkeyExt.authTag, b"")
+    dec = authenticated_decrypt(expandedSDkey, drkeyExt.auth, b"")
     decSessionID = dec[:16]
-    decPrivKey = dec[16:1207]
+    decPrivKey = dec[16:]
     if drkeyExt.sessionID != decSessionID:
         print("Different session ID 2")
     privkey = RSA.importKey(decPrivKey)
@@ -199,13 +195,13 @@ def server():
     
     ## Decrypt the keys
     keys = []
-    nrKeys = drkeyExt.maxHops
     for ext in spkt.hdr.extension_hdrs:
         if ext.TYPE == DRKeyExtCont.TYPE:
             for (encKey, sigKey) in ext.hopInfo:
                 key = cipher.decrypt(encKey)
                 # TODO check signature
                 keys.append(key)
+    print(keys)
     
     if spkt.payload == b"request to server":
         print('SRV: request received, sending response.')
@@ -215,15 +211,11 @@ def server():
         nrHops = int(len(revPath.pack()) / 8)
         authInput = bytearray()
         authInput.extend(drkeyExt.auth)
-        authInput.extend(drkeyExt.authTag)
         for key in keys:
             authInput.extend(key)
         authInput = bytes(authInput)
-        authEnc = authenticated_encrypt(expandedSDkey, authInput, b"")
-        authLen = 1223 + nrHops * DRKeyExtResp.HOP_OVERHEAD
-        auth = authEnc[:authLen] 
-        authTag = authEnc[authLen:authLen + 16]
-        drkeyRespExt = DRKeyExtResp.from_values(nrHops, auth, authTag)
+        auth = authenticated_encrypt(expandedSDkey, authInput, b"")
+        drkeyRespExt = DRKeyExtResp.from_values(nrHops, auth, len(auth))
         extensions = [drkeyRespExt]
         payload = b"response"
         revspkt = SCIONPacket.from_values(spkt.hdr.src_addr, spkt.hdr.dst_addr, payload, revPath,

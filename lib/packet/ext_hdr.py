@@ -93,7 +93,7 @@ class ExtensionHeader(HeaderBase):
         to_pad = payload_len % self.LINE_LEN
         if to_pad:  # FIXME(PSz): Should we (or ext developer) pad it?
             logging.warning("Extension is unpadded, adding padding.")
-            payload += b"\x00" * (self.PADDINGN - to_pad)
+            payload += b"\x00" * (self.LINE_LEN - to_pad)
             payload_len += self.LINE_LEN - to_pad
         self._hdr_len = payload_len // self.LINE_LEN
         self.payload = payload
