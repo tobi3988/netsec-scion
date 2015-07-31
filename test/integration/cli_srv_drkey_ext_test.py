@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from lib.packet.ext.opt import OPTExt
 """
 :mod:`cli_srv_ext_test` --- SCION client-server test with an extension
 ===========================================
@@ -18,7 +19,7 @@
 # Stdlib
 from Crypto.PublicKey import RSA
 from Crypto.Hash import SHA256
-from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Cipher import PKCS1_OAEP, AES
 import logging
 import socket
 import struct
@@ -31,7 +32,7 @@ from ipaddress import IPv4Address
 from endhost.sciond import SCIONDaemon
 from lib.defines import SCION_BUFLEN, SCION_UDP_EH_DATA_PORT
 from lib.crypto.symcrypto import sha3hash, authenticated_encrypt, authenticated_decrypt,\
-    get_roundkey_cache
+    get_roundkey_cache, get_cbcmac
 from lib.packet.ext.drkey import DRKeyExt, DRKeyExtCont, DRKeyExtResp
 from lib.packet.ext_hdr import ExtensionHeader
 from lib.packet.scion import SCIONPacket
@@ -137,12 +138,49 @@ def client():
         if drkeyRespExt.TYPE == DRKeyExtResp.TYPE:
             break
     dec = authenticated_decrypt(expandedSDkey, drkeyRespExt.auth, b"")
-    keyOffset = len(dec) - drkeyRespExt.HOP_OVERHEAD * drkeyRespExt.nrHops
+    keyOffset = len(dec) - drkeyRespExt.HOP_OVERHEAD * (drkeyRespExt.nrHops + 1)
     keys = []
     while keyOffset < len(dec):
         keys.append(dec[keyOffset:keyOffset+16])
         keyOffset += 16
     print(keys)
+    
+    
+    print("---OPT---")
+    payload = b"SCION rocks"
+    ### Compute the data hash
+    hashInput = str(payload)
+    hashOutput = sha3hash(hashInput, 'SHA3-256')[:32]
+    dataHash = bytes(bytearray.fromhex(hashOutput.decode()))
+    ### Get the current time
+    crtTime = int(time.time() * 1000) % 2**16
+    ### Initialize the PVF
+    destSharedKey = keys[-1]
+    expandedSharedkey = get_roundkey_cache(destSharedKey)
+    pvf = get_cbcmac(expandedSharedkey, dataHash)
+    optExt = OPTExt.from_values(dataHash, sessionID, crtTime, pvf)
+    print("S initiated OPT with")
+    print("dataHash")
+    print(dataHash)
+    print("session id")
+    print(sessionID)
+    print("time")
+    print(crtTime)
+    print("pvf")
+    print(pvf)
+    
+    spkt = SCIONPacket.from_values(sd.addr, dst, payload, path,
+                                   ext_hdrs=[optExt])
+    # Determine first hop (i.e., local address of border router)
+    (next_hop, port) = sd.get_first_hop(spkt)
+    print("CLI: Sending packet: %s\nFirst hop: %s:%s" % (spkt, next_hop, port))
+    # Send packet to first hop (it is sent through SCIONDaemon)
+    sd.send(spkt, next_hop, port)
+    # Open a socket for incomming DATA traffic
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((CLI_IP, SCION_UDP_EH_DATA_PORT))
+    
     print("CLI: leaving.")
     sock.close()
     sd.clean()
@@ -201,6 +239,12 @@ def server():
                 key = cipher.decrypt(encKey)
                 # TODO check signature
                 keys.append(key)
+    ## Derive the key shared with S for the session
+    destSecret = b"\x00" * 16
+    destPrfKey = b"\x03" * 16
+    cipher = AES.new(destPrfKey, AES.MODE_CBC, destSecret)
+    destSharedKey = cipher.encrypt(drkeyExt.sessionID)
+    keys.append(destSharedKey)
     print(keys)
     
     if spkt.payload == b"request to server":
@@ -215,7 +259,7 @@ def server():
             authInput.extend(key)
         authInput = bytes(authInput)
         auth = authenticated_encrypt(expandedSDkey, authInput, b"")
-        drkeyRespExt = DRKeyExtResp.from_values(nrHops, auth, len(auth))
+        drkeyRespExt = DRKeyExtResp.from_values(nrHops + 1, auth, len(auth))
         extensions = [drkeyRespExt]
         payload = b"response"
         revspkt = SCIONPacket.from_values(spkt.hdr.src_addr, spkt.hdr.dst_addr, payload, revPath,
@@ -226,6 +270,40 @@ def server():
         # Send packet to first hop (it is sent through SCIONDaemon)
         print("CLI: Sending packet: %s\nFirst hop: %s:%s" % (revspkt, next_hop, port))
         sd.send(revspkt, next_hop, port)
+    
+    # Waiting for a request
+    raw, _ = sock.recvfrom(SCION_BUFLEN)
+    # Request received, instantiating SCION packet
+    spkt = SCIONPacket(raw)
+    print('SRV: received: %s', spkt)
+    ## Check the session ID integrity
+    for optExt in spkt.hdr.extension_hdrs:
+        if optExt.TYPE == OPTExt.TYPE:
+            break
+    ###
+    print("Dest received")
+    print(optExt.pvf)
+    ## Check the dataHash
+    hashInput = str(spkt.payload)
+    hashOutput = sha3hash(hashInput, 'SHA3-256')[:32]
+    dataHash = bytes(bytearray.fromhex(hashOutput.decode()))
+    if (optExt.dataHash != dataHash):
+        print("Data hash seems corrupted")
+    ### Check the pvf
+    destSharedKey = keys[-1]
+    expandedSharedkey = get_roundkey_cache(destSharedKey)
+    pvf = get_cbcmac(expandedSharedkey, dataHash)
+    print(pvf)
+    for i in range(0,len(keys)-1):
+        expandedSharedkey = get_roundkey_cache(keys[i])
+        PVFInput = bytearray()
+        PVFInput.extend(optExt.dataHash)
+        PVFInput.extend(pvf)
+        pvf = get_cbcmac(expandedSharedkey, PVFInput)
+        print(pvf)
+    if(optExt.pvf != pvf):
+        print("The PVF field seems corrupted")
+    
     print("SRV: Leaving server.")
     sock.close()
     sd.clean()

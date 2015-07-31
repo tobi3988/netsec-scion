@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from lib.packet.ext.opt import OPTExt
 """
 :mod:`scion` --- SCION packets
 ==============================
@@ -46,7 +47,8 @@ EXTENSIONS = {
     TracerouteExt.TYPE: TracerouteExt,
     DRKeyExt.TYPE : DRKeyExt,
     DRKeyExtCont.TYPE: DRKeyExtCont,
-    DRKeyExtResp.TYPE: DRKeyExtResp
+    DRKeyExtResp.TYPE: DRKeyExtResp,
+    OPTExt.TYPE: OPTExt
 }
 
 
