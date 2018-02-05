@@ -1,0 +1,7 @@
+#!/usr/bin/python3
+# SCION
+from lib.main import main_default, main_wrapper
+from metric_server.core import CoreMetricServer
+from metric_server.local import LocalMetricServer
+
+main_wrapper(main_default, CoreMetricServer, LocalMetricServer)
