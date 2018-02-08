@@ -105,6 +105,7 @@ class PayloadClass(object):
     PATH = "pathMgmt"
     SIBRA = "sibra"
     DRKEY = "drkeyMgmt"
+    CTRLEXTNDATALIST = "extn"
 
 
 class CertMgmtType(object):
