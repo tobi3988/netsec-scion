@@ -27,6 +27,7 @@ import proto.path_seg_capnp as P
 from lib.crypto.symcrypto import crypto_hash
 from lib.defines import EXP_TIME_UNIT
 from lib.packet.asm_exts import RoutingPolicyExt
+from lib.packet.metrics import MetricsPCBExt
 from lib.packet.opaque_field import HopOpaqueField, InfoOpaqueField
 from lib.packet.packet_base import Cerealizable
 from lib.packet.path import SCIONPath
@@ -77,7 +78,7 @@ class ASMarking(Cerealizable):
                     ifid_size=12):
         p = cls.P_CLS.new_message(
             isdas=int(isd_as), trcVer=trc_ver, certVer=cert_ver,
-            ifIDSize=ifid_size, hashTreeRoot=hashTreeRoot, mtu=mtu)
+            ifIDSize=ifid_size, hashTreeRoot=hashTreeRoot, mtu=mtu, metrics=MetricsPCBExt.from_values().p)
         p.init("hops", len(pcbms))
         for i, pm in enumerate(pcbms):
             p.hops[i] = pm.p
@@ -109,6 +110,7 @@ class ASMarking(Cerealizable):
             for line in pcbm.short_desc().splitlines():
                 desc.append("  %s" % line)
         desc.append("  hashTreeRoot=%s" % self.p.hashTreeRoot)
+        desc.append("  metrics=%s" % self.p.metrics)
         return "\n".join(desc)
 
 

@@ -1,4 +1,4 @@
-@0xfb8053d9fb34b837;
+@0xe92b948e0103c7ee;
 using Go = import "go.capnp";
 $Go.package("proto");
 $Go.import("github.com/scionproto/scion/go/proto");
@@ -6,6 +6,7 @@ $Go.import("github.com/scionproto/scion/go/proto");
 using Sign = import "sign.capnp";
 using Sibra = import "sibra.capnp";
 using Exts = import "asm_exts.capnp";
+using Metrics = import "metrics.capnp";
 
 struct PathSegment {
     sdata @0 :Data; # Raw PathSegmentSignedData
@@ -30,6 +31,7 @@ struct ASEntry {
         routingPolicy @7 :Exts.RoutingPolicyExt;
         sibra @8 :Sibra.SibraPCBExt;
     }
+    metrics @9 :Metrics.MetricsPCBExt;
 }
 
 struct HopEntry {
