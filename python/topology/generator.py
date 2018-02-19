@@ -108,6 +108,7 @@ DEFAULT_LINK_BW = 1000
 DEFAULT_BEACON_SERVERS = 1
 DEFAULT_CERTIFICATE_SERVERS = 1
 DEFAULT_PATH_SERVERS = 1
+DEFAULT_METRIC_SERVERS = 1
 INITIAL_CERT_VERSION = 0
 INITIAL_TRC_VERSION = 0
 
@@ -120,6 +121,7 @@ SCION_SERVICE_NAMES = (
     "CertificateService",
     "BorderRouters",
     "PathService",
+    "MetricService"
 )
 
 DEFAULT_KEYGEN_ALG = 'ed25519'
@@ -507,6 +509,7 @@ class TopoGenerator(object):
         self.gen_bind_addr = gen_bind_addr
         self.topo_dicts = {}
         self.hosts = []
+        self.metric_servers = defaultdict(dict)
         self.zookeepers = defaultdict(dict)
         self.virt_addrs = set()
         self.as_list = defaultdict(list)
@@ -539,6 +542,7 @@ class TopoGenerator(object):
         self._write_as_topos()
         self._write_as_list()
         self._write_ifids()
+        self._write_metrics_list()
         return self.topo_dicts, self.zookeepers, networks, prv_networks
 
     def _read_links(self):
@@ -589,6 +593,7 @@ class TopoGenerator(object):
             ("certificate_servers", DEFAULT_CERTIFICATE_SERVERS, "cs",
              "CertificateService"),
             ("path_servers", DEFAULT_PATH_SERVERS, "ps", "PathService"),
+            ("metric_servers", DEFAULT_METRIC_SERVERS, "ms", "MetricService"),
         ):
             self._gen_srv_entry(
                 topo_id, as_conf, conf_key, def_num, nick, topo_key)
@@ -604,6 +609,8 @@ class TopoGenerator(object):
                     'L4Port': random.randint(30050, 30100),
                 }]
             }
+            if nick == "ms":
+                self.metric_servers[str(topo_id)] = d['Public']
             if self.gen_bind_addr:
                 d['Bind'] = [{
                     'Addr': self._reg_bind_addr(topo_id, elem_id),
@@ -696,6 +703,12 @@ class TopoGenerator(object):
         write_file(list_path, yaml.dump(self.ifid_map,
                                         default_flow_style=False))
 
+    def _write_metrics_list(self):
+        list_path = os.path.join(self.out_dir, "metrics_list")
+
+        write_file(list_path, yaml.dump(self.metric_servers,
+                                        default_flow_style=False))
+
 
 class PrometheusGenerator(object):
     PROM_DIR = "prometheus"
@@ -786,6 +799,7 @@ class SupervisorGenerator(object):
             ("BeaconService", "python/bin/beacon_server"),
             ("CertificateService", "python/bin/cert_server"),
             ("PathService", "python/bin/path_server"),
+            ("MetricService", "python/bin/metric_server"),
         ):
             entries.extend(self._std_entries(topo, key, cmd, base))
         entries.extend(self._br_entries(topo, "bin/border", base))
