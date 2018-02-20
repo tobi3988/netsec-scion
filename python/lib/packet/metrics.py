@@ -13,6 +13,5 @@ class MetricsPCBExt(Cerealizable):
 
     @classmethod
     def from_values(cls):
-        logging.debug("create metric PCB extension")
         p = cls.P_CLS.new_message(payload=b'metrics payload')
         return cls(p)
