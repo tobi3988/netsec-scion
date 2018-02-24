@@ -25,3 +25,6 @@ class CtrlExtnDataList(Cerealizable):
         for i, if_ in enumerate(items):
             ifs[i] = if_.p
         return cls(p)
+
+    def items(self):
+        return self.p.items

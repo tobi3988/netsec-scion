@@ -22,6 +22,7 @@ from abc import ABCMeta
 
 # External packages
 import time
+from collections import defaultdict
 
 import lib.app.sciond as lib_sciond
 
@@ -31,9 +32,13 @@ from lib.packet.host_addr import HostAddrIPv4
 from lib.packet.ctrl_extn_data import CtrlExtnDataList, CtrlExtnData
 from lib.packet.scion_addr import ISD_AS
 from lib.thread import thread_safety_net
+from lib.types import PayloadClass
 from lib.util import load_yaml_file
 from scion_elem.scion_elem import SCIONElement
 
+RECALCULATE_METRICS_INTERVAL_SECONDS = 10
+
+TIME_RANGE_TO_KEEP_MEASUREMENTS = 10 * 60 * 1000
 
 MAX_INTERVAL = 30
 
@@ -52,8 +57,13 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         :param str prom_export: prometheus export address.
         """
         logging.debug('server id from metric server is: ' + server_id)
-        self.metric_servers = load_yaml_file(conf_dir + '/../../../'+'metrics_list')
         super().__init__(server_id, conf_dir, prom_export=prom_export)
+        self.metric_servers = load_yaml_file(conf_dir + '/../../../' + 'metrics_list')
+        self.CTRL_PLD_CLASS_MAP = {
+            PayloadClass.CTRLEXTNDATALIST: {PayloadClass.CTRLEXTNDATALIST: self.handle_extn},
+        }
+        self.measurement_streams = defaultdict(lambda: [])
+        self.measurement_stream_lock = threading.Lock()
 
     def run(self):
         """
@@ -63,18 +73,17 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
             self.start_measurements_for_interface(interface)
         for interface in self.topology.parent_interfaces:
             self.start_measurements_for_interface(interface)
-
+        self.start_metric_calculations()
         super().run()
 
     def start_measurements_for_interface(self, interface):
         isd_as = interface.isd_as
         threading.Thread(
             target=thread_safety_net, args=(self.send_measurements, isd_as),
-            name="MS.measure" + str(isd_as), daemon=True).start()
+            name="MS.measure_" + str(isd_as), daemon=True).start()
 
     def send_measurements(self, isd_as):
         address = self.metric_servers[str(isd_as)][0]
-        logging.debug("metric server to contact is " + str(address))
         path = self._get_path_via_sciond(isd_as)
         while path is None:
             time.sleep(1)
@@ -84,10 +93,12 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                                 path=path.fwd_path())
         sequence_number = 0
         while self.run_flag.is_set():
-            timestamp = str(int(round(time.time() * 1000))).encode()
+            timestamp = str(get_timestamp_in_ms()).encode()
             self.send_meta(CtrlPayload(
                 CtrlExtnDataList.from_values(items=[CtrlExtnData.from_values(type=b'timestamp', data=timestamp),
-                                                    CtrlExtnData.from_values(type=b'seq', data=str(sequence_number).encode())])), meta)
+                                                    CtrlExtnData.from_values(type=b'seq',
+                                                                             data=str(sequence_number).encode())])),
+                meta)
             sequence_number += 1
             time.sleep(self._sampe_interval())
 
@@ -96,3 +107,58 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         if interval > MAX_INTERVAL:
             interval = MAX_INTERVAL
         return interval
+
+    def handle_extn(self, payload, meta=None):
+        logging.debug("cpld is " + str(payload))
+        logging.debug("meta is " + str(meta.ia))
+        received_at = get_timestamp_in_ms()
+        sent_at = None
+        sequence_number = None
+        measurement = payload.union
+        for element in measurement.items():
+            if element.type == b"timestamp":
+                sent_at = int(element.data.decode())
+            if element.type == b"seq":
+                sequence_number = int(element.data.decode())
+        measurement = Measurement(sequence_number, sent_at, received_at)
+        with self.measurement_stream_lock:
+            self.measurement_streams[str(meta.ia)].append(measurement)
+
+    def start_metric_calculations(self):
+        threading.Thread(
+            target=thread_safety_net, args=(self.calculate_metrics,),
+            name="MS.calc_metrics", daemon=True).start()
+
+    def calculate_metrics(self):
+        while self.run_flag.is_set():
+            self.cleanMeasurementStream()
+            time.sleep(RECALCULATE_METRICS_INTERVAL_SECONDS)
+
+    def cleanMeasurementStream(self):
+        with self.measurement_stream_lock:
+            timeout = get_timestamp_in_ms() - TIME_RANGE_TO_KEEP_MEASUREMENTS
+            for isd_as in self.measurement_streams.keys():
+                measurements = self.measurement_streams[isd_as]
+                cleaned_measurements = list(
+                    filter(lambda measurement: measurement.sent_at > timeout, measurements))
+                self.measurement_streams[isd_as] = cleaned_measurements
+                logging.debug("length after clean is: %d" % len(cleaned_measurements))
+
+
+class Measurement:
+    def __init__(self, sequence_number, sent_at, received_at):
+        self.received_at = received_at
+        self.sequence_number = sequence_number
+        self.sent_at = sent_at
+
+    def __str__(self):
+        s = []
+        s.append("{received_at: %d" % self.received_at)
+        s.append("sequence_number: %d" % self.sequence_number)
+        s.append("sent_at: %d}" % self.sent_at)
+
+        return "\n".join(s)
+
+
+def get_timestamp_in_ms():
+    return int(round(time.time() * 1000))
