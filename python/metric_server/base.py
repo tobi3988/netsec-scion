@@ -36,20 +36,13 @@ from lib.packet.scion_addr import ISD_AS
 from lib.thread import thread_safety_net
 from lib.types import PayloadClass
 from lib.util import load_yaml_file
+from metric_server.constants import LAMBDA, MAX_INTERVAL, RECALCULATE_METRICS_INTERVAL_SECONDS, \
+    TIME_RANGE_TO_KEEP_MEASUREMENTS
+from metric_server.lib.lib import get_timestamp_in_ms, remove_duplicates
+from metric_server.metrics.latency import calculate_one_way_delay, calculate_one_way_delay_variation
+from metric_server.metrics.packet_loss import calculate_packet_loss
+from metric_server.metrics.packet_reordering import calculate_packet_reordering
 from scion_elem.scion_elem import SCIONElement
-
-PACKETLOSS_TIMEOUT = 5 * 1000
-
-RECALCULATE_METRICS_INTERVAL_SECONDS = 10
-
-TIME_RANGE_TO_KEEP_MEASUREMENTS = 10 * 60 * 1000
-
-MAX_INTERVAL = 30
-
-MEAN_INTERVAL = 10.0
-LAMBDA = 1.0 / MEAN_INTERVAL
-
-API_TOUT = 30
 
 
 class MetricServer(SCIONElement, metaclass=ABCMeta):
@@ -144,10 +137,14 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                 measurements = streams_copy[isd_as]
                 self.aggregated_metrics[isd_as].isd_as = isd_as
 
-                self.aggregated_metrics[isd_as].avg_one_way_delay = self.calculate_latency(measurements)
-                self.aggregated_metrics[isd_as].packet_loss = self.calculate_packet_loss(measurements)
+                self.aggregated_metrics[isd_as].avg_one_way_delay = calculate_one_way_delay(measurements)
+                self.aggregated_metrics[isd_as].packet_loss = calculate_packet_loss(measurements)
+                self.aggregated_metrics[isd_as].packet_reordering = calculate_packet_reordering(measurements)
+                self.aggregated_metrics[isd_as].one_way_delay_variation = calculate_one_way_delay_variation(measurements)
                 logging.debug("avg owd is %d" % self.aggregated_metrics[isd_as].avg_one_way_delay)
-                logging.debug("packet loss is %2.4f" % self.aggregated_metrics[isd_as].packet_loss)
+                logging.debug("packet loss is %1.4f" % self.aggregated_metrics[isd_as].packet_loss)
+                logging.debug("packet reordering is %1.4f" % self.aggregated_metrics[isd_as].packet_reordering)
+                logging.debug("delay variation is %s" % str(self.aggregated_metrics[isd_as].one_way_delay_variation))
             time.sleep(RECALCULATE_METRICS_INTERVAL_SECONDS)
 
     def clean_measurement_stream(self):
@@ -158,38 +155,10 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                 measurements = self.measurement_streams[isd_as]
                 cleaned_measurements = list(
                     filter(lambda measurement: measurement.sent_at > timeout, measurements))
+                cleaned_measurements = remove_duplicates(cleaned_measurements,
+                                                         lambda measurement: measurement.sequence_number)
                 self.measurement_streams[isd_as] = cleaned_measurements
                 logging.debug("length after clean is: %d" % len(cleaned_measurements))
-
-    def calculate_latency(self, measurements):
-        avg_one_way_delay = 0
-        for measurement in measurements:
-            measurement.avg_one_way_delay = measurement.received_at - measurement.sent_at
-            avg_one_way_delay += measurement.avg_one_way_delay
-        if measurements:
-            return avg_one_way_delay / len(measurements)
-        else:
-            return -1
-
-    def calculate_packet_loss(self, measurements):
-        lost_packets = 0
-        now = get_timestamp_in_ms()
-        measurements = list(
-            filter(lambda measurement: measurement.sent_at < now - PACKETLOSS_TIMEOUT, measurements))
-        number_of_packets = len(measurements)
-        if number_of_packets == 0:
-            return 0.0
-        measurements.sort(key=lambda measurement: measurement.sequence_number)
-        previous_packet = measurements[0]
-        for index, measurement in enumerate(measurements):
-            if measurement.received_at - measurement.sent_at > PACKETLOSS_TIMEOUT:
-                lost_packets += 1.0
-            if index != 0:
-                number_of_missing_packets = (measurement.sequence_number - previous_packet.sequence_number) - 1
-                lost_packets += number_of_missing_packets
-                number_of_packets += number_of_missing_packets
-            previous_packet = measurement
-        return float(lost_packets) / float(number_of_packets)
 
 
 class Measurement:
@@ -197,7 +166,7 @@ class Measurement:
         self.received_at = received_at
         self.sequence_number = sequence_number
         self.sent_at = sent_at
-        self.one_way_delay = None
+        self.one_way_delay = received_at - sent_at
 
     def __str__(self):
         s = []
@@ -213,14 +182,14 @@ class One_Hop_Metric:
         self.isd_as = isd_as
         self.avg_one_way_delay = -1
         self.packet_loss = 0.0
+        self.packet_reordering = 0.0
+        self.one_way_delay_variation = {}
 
     def __str__(self):
         s = []
         s.append("{isd_as: %s" % self.isd_as)
         s.append("avg_one_way_delay: %d" % self.avg_one_way_delay)
-        s.append("packet_loss: %2.4f" % self.packet_loss)
+        s.append("packet_loss: %1.4f" % self.packet_loss)
+        s.append("packet_reordering: %1.4f" % self.packet_reordering)
         return "\n".join(s)
 
-
-def get_timestamp_in_ms():
-    return int(round(time.time() * 1000))
