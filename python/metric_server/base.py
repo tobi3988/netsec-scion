@@ -140,11 +140,13 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                 self.aggregated_metrics[isd_as].avg_one_way_delay = calculate_one_way_delay(measurements)
                 self.aggregated_metrics[isd_as].packet_loss = calculate_packet_loss(measurements)
                 self.aggregated_metrics[isd_as].packet_reordering = calculate_packet_reordering(measurements)
-                self.aggregated_metrics[isd_as].one_way_delay_variation = calculate_one_way_delay_variation(measurements)
-                logging.debug("avg owd is %d" % self.aggregated_metrics[isd_as].avg_one_way_delay)
-                logging.debug("packet loss is %1.4f" % self.aggregated_metrics[isd_as].packet_loss)
-                logging.debug("packet reordering is %1.4f" % self.aggregated_metrics[isd_as].packet_reordering)
-                logging.debug("delay variation is %s" % str(self.aggregated_metrics[isd_as].one_way_delay_variation))
+                variation = calculate_one_way_delay_variation(measurements)
+                self.aggregated_metrics[isd_as].one_way_delay_variation = variation
+                # logging.debug("avg owd is %d" % self.aggregated_metrics[isd_as].avg_one_way_delay)
+                # logging.debug("packet loss is %1.4f" % self.aggregated_metrics[isd_as].packet_loss)
+                # logging.debug("packet reordering is %1.4f" % self.aggregated_metrics[isd_as].packet_reordering)
+                # logging.debug("delay variation is %s" % str(self.aggregated_metrics[isd_as].one_way_delay_variation))
+                self.send_metrics_to_beacon_server(isd_as)
             time.sleep(RECALCULATE_METRICS_INTERVAL_SECONDS)
 
     def clean_measurement_stream(self):
@@ -158,7 +160,33 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                 cleaned_measurements = remove_duplicates(cleaned_measurements,
                                                          lambda measurement: measurement.sequence_number)
                 self.measurement_streams[isd_as] = cleaned_measurements
-                logging.debug("length after clean is: %d" % len(cleaned_measurements))
+
+    def send_metrics_to_beacon_server(self, metrics_for_isd_as):
+        isd_as = self.topology.isd_as
+        path = self._get_path_via_sciond(isd_as)
+        while path is None:
+            time.sleep(1)
+            path = self._get_path_via_sciond(isd_as)
+            logging.debug("waiting to get valid path")
+        beacon_servers = self.topology.beacon_servers
+        for bs in beacon_servers:
+            address = bs.public
+            meta = self._build_meta(isd_as, address[0][0], port=int(address[0][1]),
+                                    path=path.fwd_path())
+            metrics = self.aggregated_metrics[metrics_for_isd_as]
+            self.send_meta(CtrlPayload(
+                CtrlExtnDataList.from_values(items=
+                                             [CtrlExtnData.from_values(type=b'isd_as', data=str(isd_as).encode()),
+                                              CtrlExtnData.from_values(type=b'avg_owd',
+                                                                       data=str(metrics.avg_one_way_delay).encode()),
+                                              CtrlExtnData.from_values(type=b'pkt_reordering',
+                                                                       data=str(metrics.packet_reordering).encode()),
+                                              CtrlExtnData.from_values(type=b'owd_variation_90',
+                                                                       data=str(metrics.one_way_delay_variation[
+                                                                                    90]).encode()),
+                                              CtrlExtnData.from_values(type=b'pkt_loss',
+                                                                       data=str(metrics.packet_loss).encode())])),
+                meta)
 
 
 class Measurement:
@@ -183,7 +211,7 @@ class One_Hop_Metric:
         self.avg_one_way_delay = -1
         self.packet_loss = 0.0
         self.packet_reordering = 0.0
-        self.one_way_delay_variation = {}
+        self.one_way_delay_variation = defaultdict(lambda: 0)
 
     def __str__(self):
         s = []
@@ -191,5 +219,6 @@ class One_Hop_Metric:
         s.append("avg_one_way_delay: %d" % self.avg_one_way_delay)
         s.append("packet_loss: %1.4f" % self.packet_loss)
         s.append("packet_reordering: %1.4f" % self.packet_reordering)
+        s.append("one_way_delay_variation: %s" % str(self.one_way_delay_variation))
+        s.append("}")
         return "\n".join(s)
-

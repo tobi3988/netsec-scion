@@ -1,21 +1,20 @@
 import logging
+from collections import defaultdict
 
 from metric_server.lib.lib import percentile
 
 
 def calculate_one_way_delay_variation(measurements):
+    result = defaultdict(lambda: 0)
     if len(measurements) < 2:
-        return {}
+        return result
     latencies = list(map(lambda measurement: measurement.one_way_delay, measurements))
     min_latency = min(latencies)
     latencies = list(map(lambda latency: latency - min_latency, latencies))  # normalize
-    logging.debug("latencies %s" % str(latencies))
     latencies.sort()
-    logging.debug("sorted latencies %s" % str(latencies))
-    result = {}
     for index in range(0, 10):
         percentage = index * 0.1
-        result[index*10] = percentile(latencies, percentage)
+        result[index * 10] = percentile(latencies, percentage)
     return result
 
 

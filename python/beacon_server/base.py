@@ -86,6 +86,7 @@ from lib.zk.cache import ZkSharedCache
 from lib.zk.errors import ZkNoConnection
 from lib.zk.id import ZkID
 from lib.zk.zk import ZK_LOCK_SUCCESS, Zookeeper
+from metric_server.base import One_Hop_Metric
 from scion_elem.scion_elem import SCIONElement
 
 
@@ -156,6 +157,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
                 PMT.IFSTATE_REQ: self._handle_ifstate_request,
                 PMT.REVOCATION: self._handle_revocation,
             },
+            PayloadClass.CTRLEXTNDATALIST: {PayloadClass.CTRLEXTNDATALIST: self.handle_extn}
         }
         self.SCMP_PLD_CLASS_MAP = {
             SCMPClass.PATH: {
@@ -175,6 +177,8 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         self.local_rev_cache = ExpiringDict(1000, HASHTREE_EPOCH_TIME +
                                             HASHTREE_EPOCH_TOLERANCE)
         self._rev_seg_lock = RLock()
+
+        self.metrics = defaultdict(lambda: One_Hop_Metric(None))
 
     def _init_hash_tree(self):
         ifs = list(self.ifid2br.keys())
@@ -782,3 +786,21 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             SEGMENTS_REGISTERED.labels(**self._labels, type=type_).inc(0)
         REVOCATIONS_ISSUED.labels(**self._labels).inc(0)
         IS_MASTER.labels(**self._labels).set(0)
+
+    def handle_extn(self, payload, meta=None):
+        raw_metrics = payload.union
+        metrics = One_Hop_Metric(None)
+        for element in raw_metrics.items():
+            if element.type == b"isd_as":
+                metrics.isd_as = element.data.decode()
+            if element.type == b"avg_owd":
+                metrics.avg_one_way_delay = float(element.data.decode())
+            if element.type == b"pkt_reordering":
+                metrics.packet_reordering = float(element.data.decode())
+            if element.type == b"pkt_reordering":
+                metrics.packet_reordering = float(element.data.decode())
+            if element.type == b"owd_variation_90":
+                metrics.one_way_delay_variation[90] = float(element.data.decode())
+            if element.type == b"pkt_loss":
+                metrics.packet_loss = float(element.data.decode())
+        self.metrics[metrics.isd_as] = metrics
