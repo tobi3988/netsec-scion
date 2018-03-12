@@ -89,7 +89,6 @@ from lib.zk.zk import ZK_LOCK_SUCCESS, Zookeeper
 from metric_server.base import One_Hop_Metric
 from scion_elem.scion_elem import SCIONElement
 
-
 # Exported metrics.
 BEACONS_PROPAGATED = Counter("bs_beacons_propagated_total", "# of propagated beacons",
                              ["server_id", "isd_as", "type"])
@@ -178,7 +177,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
                                             HASHTREE_EPOCH_TOLERANCE)
         self._rev_seg_lock = RLock()
 
-        self.metrics = defaultdict(lambda: One_Hop_Metric(None))
+        self.metrics = defaultdict(lambda: One_Hop_Metric(None, None))
 
     def _init_hash_tree(self):
         ifs = list(self.ifid2br.keys())
@@ -217,8 +216,10 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         return propagated_pcbs
 
     def _mk_prop_pcb_meta(self, pcb, dst_ia, egress_if):
+        src_ia = self.get_src_ia_from_pcb(pcb)
+        metrics = self.get_corresponding_metrics(dst_ia, src_ia)
         ts = pcb.get_timestamp()
-        asm = self._create_asm(pcb.ifID, egress_if, ts, pcb.last_hof())
+        asm = self._create_asm(pcb.ifID, egress_if, ts, pcb.last_hof(), metrics)
         if not asm:
             return None, None
         pcb.add_asm(asm, ProtoSignType.ED25519, self.addr.isd_as.pack())
@@ -226,6 +227,16 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         one_hop_path = self._create_one_hop_path(egress_if)
         return pcb, self._build_meta(ia=dst_ia, host=SVCType.BS_A,
                                      path=one_hop_path, one_hop=True)
+
+    def get_corresponding_metrics(self, dst_ia, src_ia):
+        dst_metrics = self.metrics[str(dst_ia)]
+        src_metrics = self.metrics[str(src_ia)]
+        metrics = []
+        if dst_metrics.from_isd_as is not None and dst_metrics.to_isd_as is not None:
+            metrics.append(dst_metrics)
+        if src_metrics.from_isd_as is not None and src_metrics.to_isd_as is not None:
+            metrics.append(src_metrics)
+        return metrics
 
     def _create_one_hop_path(self, egress_if):
         ts = int(SCIONTime.get_time())
@@ -280,8 +291,11 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         Handles pcbs received from the network.
         """
         pcb = cpld.union
+        metrics_to_forward = []
         assert isinstance(pcb, PCB), type(pcb)
         pcb = pcb.pseg()
+        for asm in pcb.iter_asms():
+            metrics_to_forward.extend(asm.metrics())
         if meta:
             pcb.ifID = meta.path.get_hof().ingress_if
         try:
@@ -296,6 +310,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             return
         seg_meta = PathSegMeta(pcb, self.continue_seg_processing, meta)
         self._process_path_seg(seg_meta)
+        self.forward_metrics_to_metric_server(metrics_to_forward)
 
     def continue_seg_processing(self, seg_meta):
         """
@@ -349,7 +364,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         if self._labels:
             SEGMENTS_REGISTERED.labels(**self._labels, type=seg_type).inc(reg_cnt)
 
-    def _create_asm(self, in_if, out_if, ts, prev_hof):
+    def _create_asm(self, in_if, out_if, ts, prev_hof, metrics):
         pcbms = list(self._create_pcbms(in_if, out_if, ts, prev_hof))
         if not pcbms:
             return None
@@ -357,7 +372,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         _, cert_ver = chain.get_leaf_isd_as_ver()
         return ASMarking.from_values(
             self.addr.isd_as, self._get_my_trc().version, cert_ver, pcbms,
-            self._get_ht_root(), self.topology.mtu)
+            self._get_ht_root(), self.topology.mtu, metrics=metrics)
 
     def _create_pcbms(self, in_if, out_if, ts, prev_hof):
         up_pcbm = self._create_pcbm(in_if, out_if, ts, prev_hof)
@@ -399,7 +414,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         """
         pcb = pcb.copy()
         asm = self._create_asm(pcb.ifID, 0, pcb.get_timestamp(),
-                               pcb.last_hof())
+                               pcb.last_hof(), [])
         if not asm:
             return None
         pcb.add_asm(asm, ProtoSignType.ED25519, self.addr.isd_as.pack())
@@ -540,7 +555,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
                 self.handle_pcbs_propagation()
                 last_propagation = now
             if (self.config.registers_paths and
-                    now - last_registration >= self.config.registration_time):
+                            now - last_registration >= self.config.registration_time):
                 try:
                     self.register_segments()
                 except SCIONKeyError as e:
@@ -714,7 +729,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             # revoked, then the corresponding pcb needs to be removed.
             root_verify = ConnectedHashTree.verify(rev_info, self._get_ht_root())
             if (self.addr.isd_as == rev_info.isd_as() and
-                    cand.pcb.ifID == rev_info.p.ifID and root_verify):
+                        cand.pcb.ifID == rev_info.p.ifID and root_verify):
                 to_remove.append(cand.id)
 
             for asm in cand.pcb.iter_asms():
@@ -789,18 +804,26 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
 
     def handle_extn(self, payload, meta=None):
         raw_metrics = payload.union
-        metrics = One_Hop_Metric(None)
+        metrics = One_Hop_Metric(None, None)
         for element in raw_metrics.items():
-            if element.type == b"isd_as":
-                metrics.isd_as = element.data.decode()
+            if element.type == b"from_isd_as":
+                metrics.from_isd_as = element.data.decode()
+            if element.type == b"to_isd_as":
+                metrics.to_isd_as = element.data.decode()
             if element.type == b"avg_owd":
                 metrics.avg_one_way_delay = float(element.data.decode())
-            if element.type == b"pkt_reordering":
-                metrics.packet_reordering = float(element.data.decode())
             if element.type == b"pkt_reordering":
                 metrics.packet_reordering = float(element.data.decode())
             if element.type == b"owd_variation_90":
                 metrics.one_way_delay_variation[90] = float(element.data.decode())
             if element.type == b"pkt_loss":
                 metrics.packet_loss = float(element.data.decode())
-        self.metrics[metrics.isd_as] = metrics
+        self.metrics[metrics.from_isd_as] = metrics
+
+    @abstractmethod
+    def get_src_ia_from_pcb(self, pcb):
+        raise NotImplementedError
+
+    def forward_metrics_to_metric_server(self, metrics_to_forward):
+        logging.debug("metrics to  forward %s" % str(metrics_to_forward))
+

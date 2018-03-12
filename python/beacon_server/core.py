@@ -40,6 +40,7 @@ class CoreBeaconServer(BeaconServer):
     Starts broadcasting beacons down-stream within an ISD and across ISDs
     towards other core beacon servers.
     """
+
     def __init__(self, server_id, conf_dir, prom_export=None):
         """
         :param str server_id: server identifier.
@@ -199,3 +200,6 @@ class CoreBeaconServer(BeaconServer):
             # Remove the affected segments from the path stores.
             for ps in self.core_beacons.values():
                 ps.remove_segments(to_remove)
+
+    def get_src_ia_from_pcb(self, pcb):
+        return None

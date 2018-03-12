@@ -31,7 +31,7 @@ struct ASEntry {
         routingPolicy @7 :Exts.RoutingPolicyExt;
         sibra @8 :Sibra.SibraPCBExt;
     }
-    metrics @9 :Metrics.MetricsPCBExt;
+    metrics @9 :List(Metrics.MetricsPCBExt);
 }
 
 struct HopEntry {

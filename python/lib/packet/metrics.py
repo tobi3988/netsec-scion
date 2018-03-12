@@ -12,6 +12,11 @@ class MetricsPCBExt(Cerealizable):
     P_CLS = P.MetricsPCBExt
 
     @classmethod
-    def from_values(cls):
-        p = cls.P_CLS.new_message(payload=b'metrics payload')
+    def from_values(cls, metrics):
+        p = cls.P_CLS.new_message(fromIsdAs=metrics.from_isd_as, toIsdAs=metrics.to_isd_as,
+                                  avgOwd=metrics.avg_one_way_delay, pktReordering=metrics.packet_reordering,
+                                  owdVariation90=metrics.one_way_delay_variation[90], pktLoss=metrics.packet_loss)
         return cls(p)
+
+    def from_isd_as(self):
+        return self.p.fromIsdAs

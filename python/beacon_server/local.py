@@ -156,3 +156,6 @@ class LocalBeaconServer(BeaconServer):
             # Keep the ID of the not-terminated PCB to relate to previously received ones.
             registered_paths[(str(dst_ps), PATH_SERVICE)].append(pcb.short_id())
         self._log_registrations(registered_paths, "down")
+
+    def get_src_ia_from_pcb(self, pcb):
+        return pcb.last_ia()

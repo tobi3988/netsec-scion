@@ -60,7 +60,7 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
             PayloadClass.CTRLEXTNDATALIST: {PayloadClass.CTRLEXTNDATALIST: self.handle_extn},
         }
         self.measurement_streams = defaultdict(lambda: [])
-        self.aggregated_metrics = defaultdict(lambda: One_Hop_Metric(None))
+        self.aggregated_metrics = defaultdict(lambda: One_Hop_Metric(None, str(self.topology.isd_as)))
         self.measurement_stream_lock = threading.Lock()
 
     def run(self):
@@ -135,7 +135,7 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                 streams_copy = copy.deepcopy(self.measurement_streams)
             for isd_as in streams_copy.keys():
                 measurements = streams_copy[isd_as]
-                self.aggregated_metrics[isd_as].isd_as = isd_as
+                self.aggregated_metrics[isd_as].from_isd_as = str(isd_as)
 
                 self.aggregated_metrics[isd_as].avg_one_way_delay = calculate_one_way_delay(measurements)
                 self.aggregated_metrics[isd_as].packet_loss = calculate_packet_loss(measurements)
@@ -175,18 +175,18 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                                     path=path.fwd_path())
             metrics = self.aggregated_metrics[metrics_for_isd_as]
             self.send_meta(CtrlPayload(
-                CtrlExtnDataList.from_values(items=
-                                             [CtrlExtnData.from_values(type=b'isd_as', data=str(isd_as).encode()),
-                                              CtrlExtnData.from_values(type=b'avg_owd',
-                                                                       data=str(metrics.avg_one_way_delay).encode()),
-                                              CtrlExtnData.from_values(type=b'pkt_reordering',
-                                                                       data=str(metrics.packet_reordering).encode()),
-                                              CtrlExtnData.from_values(type=b'owd_variation_90',
-                                                                       data=str(metrics.one_way_delay_variation[
-                                                                                    90]).encode()),
-                                              CtrlExtnData.from_values(type=b'pkt_loss',
-                                                                       data=str(metrics.packet_loss).encode())])),
-                meta)
+                CtrlExtnDataList.from_values(
+                    items=[CtrlExtnData.from_values(type=b'from_isd_as', data=str(metrics.from_isd_as).encode()),
+                           CtrlExtnData.from_values(type=b'to_isd_as', data=str(metrics.to_isd_as).encode()),
+                           CtrlExtnData.from_values(type=b'avg_owd',
+                                                    data=str(metrics.avg_one_way_delay).encode()),
+                           CtrlExtnData.from_values(type=b'pkt_reordering',
+                                                    data=str(metrics.packet_reordering).encode()),
+                           CtrlExtnData.from_values(type=b'owd_variation_90',
+                                                    data=str(metrics.one_way_delay_variation[
+                                                                 90]).encode()),
+                           CtrlExtnData.from_values(type=b'pkt_loss',
+                                                    data=str(metrics.packet_loss).encode())])), meta)
 
 
 class Measurement:
@@ -206,8 +206,9 @@ class Measurement:
 
 
 class One_Hop_Metric:
-    def __init__(self, isd_as):
-        self.isd_as = isd_as
+    def __init__(self, from_isd_as, to_isd_as):
+        self.from_isd_as = from_isd_as
+        self.to_isd_as = to_isd_as
         self.avg_one_way_delay = -1
         self.packet_loss = 0.0
         self.packet_reordering = 0.0
@@ -215,7 +216,8 @@ class One_Hop_Metric:
 
     def __str__(self):
         s = []
-        s.append("{isd_as: %s" % self.isd_as)
+        s.append("{from_isd_as: %s" % self.from_isd_as)
+        s.append("to_isd_as: %s" % self.to_isd_as)
         s.append("avg_one_way_delay: %d" % self.avg_one_way_delay)
         s.append("packet_loss: %1.4f" % self.packet_loss)
         s.append("packet_reordering: %1.4f" % self.packet_reordering)

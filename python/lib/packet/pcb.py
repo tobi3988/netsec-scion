@@ -16,6 +16,7 @@
 ===========================
 """
 # Stdlib
+import logging
 import struct
 from collections import defaultdict
 
@@ -75,13 +76,16 @@ class ASMarking(Cerealizable):
 
     @classmethod
     def from_values(cls, isd_as, trc_ver, cert_ver, pcbms, hashTreeRoot, mtu, exts=(),
-                    ifid_size=12):
+                    ifid_size=12, metrics=[]):
         p = cls.P_CLS.new_message(
             isdas=int(isd_as), trcVer=trc_ver, certVer=cert_ver,
-            ifIDSize=ifid_size, hashTreeRoot=hashTreeRoot, mtu=mtu, metrics=MetricsPCBExt.from_values().p)
+            ifIDSize=ifid_size, hashTreeRoot=hashTreeRoot, mtu=mtu)
         p.init("hops", len(pcbms))
         for i, pm in enumerate(pcbms):
             p.hops[i] = pm.p
+        p.init("metrics", len(metrics))
+        for i, metric in enumerate(metrics):
+            p.metrics[i] = MetricsPCBExt.from_values(metric).p
         for ext in exts:
             if ext.EXT_TYPE == ASMExtType.ROUTING_POLICY:
                 p.exts.routingPolicy = ext.p
@@ -97,6 +101,9 @@ class ASMarking(Cerealizable):
         for i in range(start, len(self.p.hops)):
             yield self.pcbm(i)
 
+    def metrics(self):
+        return self.p.metrics
+
     def routing_pol_ext(self):
         if self.p.exts.routingPolicy.set:
             return RoutingPolicyExt(self.p.exts.routingPolicy)
@@ -110,7 +117,7 @@ class ASMarking(Cerealizable):
             for line in pcbm.short_desc().splitlines():
                 desc.append("  %s" % line)
         desc.append("  hashTreeRoot=%s" % self.p.hashTreeRoot)
-        desc.append("  metrics=%s" % self.p.metrics)
+        desc.append("  metrics=%s" % str(self.p.metrics))
         return "\n".join(desc)
 
 
@@ -175,7 +182,7 @@ class PathSegment(Cerealizable):
         if idx is None:
             idx = len(self.p.asEntries) - 1
         b = [self.p.sdata]
-        for i in range(idx+1):
+        for i in range(idx + 1):
             sblob = self.p.asEntries[i]
             b.append(sblob.blob)
             ssign = ProtoSign(sblob.sign)
