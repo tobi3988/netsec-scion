@@ -106,6 +106,7 @@ class PayloadClass(object):
     SIBRA = "sibra"
     DRKEY = "drkeyMgmt"
     CTRLEXTNDATALIST = "extn"
+    METRICS = "metrics"
 
 
 class CertMgmtType(object):

@@ -8,6 +8,7 @@ from lib.packet.packet_base import Cerealizable
 
 
 class MetricsPCBExt(Cerealizable):
+
     NAME = "Metrics"
     P_CLS = P.MetricsPCBExt
 
@@ -20,3 +21,4 @@ class MetricsPCBExt(Cerealizable):
 
     def from_isd_as(self):
         return self.p.fromIsdAs
+

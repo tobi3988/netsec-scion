@@ -28,6 +28,7 @@ from lib.errors import SCIONParseError
 from lib.packet.cert_mgmt import CertMgmt
 from lib.packet.ctrl_extn_data import CtrlExtnDataList
 from lib.packet.ifid import IFIDPayload
+from lib.packet.metrics import MetricsPCBExt
 from lib.packet.packet_base import CerealBox, Cerealizable
 from lib.packet.path_mgmt.base import PathMgmt
 from lib.packet.pcb import PCB
@@ -88,6 +89,7 @@ class CtrlPayload(CerealBox):
         SIBRAPayload: PayloadClass.SIBRA,
         DRKeyMgmt: PayloadClass.DRKEY,
         CtrlExtnDataList: PayloadClass.CTRLEXTNDATALIST,
+        MetricsPCBExt: PayloadClass.METRICS,
     }
 
     @classmethod

@@ -49,6 +49,7 @@ from lib.errors import (
     SCIONServiceLookupError,
 )
 from lib.msg_meta import UDPMetadata
+from lib.packet.metrics import MetricsPCBExt
 from lib.path_seg_meta import PathSegMeta
 from lib.packet.ctrl_pld import CtrlPayload
 from lib.packet.ifid import IFIDPayload
@@ -825,5 +826,16 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         raise NotImplementedError
 
     def forward_metrics_to_metric_server(self, metrics_to_forward):
-        logging.debug("metrics to  forward %s" % str(metrics_to_forward))
+        isd_as = self.topology.isd_as
+        path = self._get_path_via_sciond(isd_as)
+        if path is None:
+            logging.debug("no valid path")
+            return
+        for metric in metrics_to_forward:
+            metric_servers = self.topology.metric_servers
+            for ms in metric_servers:
+                address = ms.public
+                meta = self._build_meta(isd_as, address[0][0], port=int(address[0][1]),
+                                        path=path.fwd_path())
+                self.send_meta(CtrlPayload(MetricsPCBExt.from_proto(metric.p)), meta)
 

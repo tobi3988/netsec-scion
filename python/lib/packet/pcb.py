@@ -102,7 +102,10 @@ class ASMarking(Cerealizable):
             yield self.pcbm(i)
 
     def metrics(self):
-        return self.p.metrics
+        metrics = []
+        for i in range(0, len(self.p.metrics)):
+            metrics.append(MetricsPCBExt(self.p.metrics[i]))
+        return metrics
 
     def routing_pol_ext(self):
         if self.p.exts.routingPolicy.set:

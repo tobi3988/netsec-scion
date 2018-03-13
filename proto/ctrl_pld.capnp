@@ -12,6 +12,7 @@ using SIBRA = import "sibra.capnp";
 using DRKeyMgmt = import "drkey_mgmt.capnp";
 using SIG = import "sig.capnp";
 using CtrlExtn = import "ctrl_extn.capnp";
+using Metrics = import "metrics.capnp";
 
 struct SignedCtrlPld {
     blob @0 :Data;  # Raw CtrlPld
@@ -29,5 +30,6 @@ struct CtrlPld {
         drkeyMgmt @6 :DRKeyMgmt.DRKeyMgmt;
         sig @7 :SIG.SIGCtrl;
         extn @8 :CtrlExtn.CtrlExtnDataList;
+        metrics @9 :Metrics.MetricsPCBExt;
     }
 }
