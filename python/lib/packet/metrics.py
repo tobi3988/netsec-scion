@@ -22,3 +22,18 @@ class MetricsPCBExt(Cerealizable):
     def from_isd_as(self):
         return self.p.fromIsdAs
 
+    def to_isd_as(self):
+        return self.p.toIsdAs
+
+    def avg_one_way_delay(self):
+        return self.p.avgOwd
+
+    def packet_reordering(self):
+        return self.p.pktReordering
+
+    def one_way_delay_variation(self):
+        return self.p.owdVariation90
+
+    def packet_loss(self):
+        return self.p.pktLoss
+

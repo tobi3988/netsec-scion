@@ -58,9 +58,11 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         self.metric_servers = load_yaml_file(conf_dir + '/../../../' + 'metrics_list')
         self.CTRL_PLD_CLASS_MAP = {
             PayloadClass.CTRLEXTNDATALIST: {PayloadClass.CTRLEXTNDATALIST: self.handle_extn},
+            PayloadClass.METRICS: {PayloadClass.METRICS: self.handle_metrics_from_bs},
         }
         self.measurement_streams = defaultdict(lambda: [])
         self.aggregated_metrics = defaultdict(lambda: One_Hop_Metric(None, str(self.topology.isd_as)))
+        self.all_aggregated_metrics = {}
         self.measurement_stream_lock = threading.Lock()
 
     def run(self):
@@ -122,6 +124,12 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         with self.measurement_stream_lock:
             self.measurement_streams[str(meta.ia)].append(measurement)
 
+    def handle_metrics_from_bs(self, payload, meta=None):
+        logging.debug("cpld is " + str(payload))
+        logging.debug("meta is " + str(meta))
+        self.add_one_hop_to_all_metrics(One_Hop_Metric.from_payload_metric(payload))
+
+
     def start_metric_calculations(self):
         threading.Thread(
             target=thread_safety_net, args=(self.calculate_metrics,),
@@ -147,10 +155,10 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                 # logging.debug("packet reordering is %1.4f" % self.aggregated_metrics[isd_as].packet_reordering)
                 # logging.debug("delay variation is %s" % str(self.aggregated_metrics[isd_as].one_way_delay_variation))
                 self.send_metrics_to_beacon_server(isd_as)
+                self.add_one_hop_to_all_metrics(self.aggregated_metrics[isd_as])
             time.sleep(RECALCULATE_METRICS_INTERVAL_SECONDS)
 
     def clean_measurement_stream(self):
-        # TODO get rid off duplicated sequencenumbers
         with self.measurement_stream_lock:
             timeout = get_timestamp_in_ms() - TIME_RANGE_TO_KEEP_MEASUREMENTS
             for isd_as in self.measurement_streams.keys():
@@ -188,6 +196,9 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                            CtrlExtnData.from_values(type=b'pkt_loss',
                                                     data=str(metrics.packet_loss).encode())])), meta)
 
+    def add_one_hop_to_all_metrics(self, metric):
+        self.all_aggregated_metrics[metric.from_isd_as + metric.to_isd_as] = metric
+
 
 class Measurement:
     def __init__(self, sequence_number, sent_at, received_at):
@@ -214,13 +225,21 @@ class One_Hop_Metric:
         self.packet_reordering = 0.0
         self.one_way_delay_variation = defaultdict(lambda: 0)
 
+    @classmethod
+    def from_payload_metric(cls, payload):
+        raw = payload.union
+        metrics = cls(raw.from_isd_as(), raw.to_isd_as())
+        metrics.avg_one_way_delay = raw.avg_one_way_delay()
+        metrics.packet_reordering = raw.packet_reordering()
+        metrics.packet_loss = raw.packet_loss()
+        metrics.one_way_delay_variation = raw.one_way_delay_variation()
+        return metrics
+
     def __str__(self):
-        s = []
-        s.append("{from_isd_as: %s" % self.from_isd_as)
-        s.append("to_isd_as: %s" % self.to_isd_as)
-        s.append("avg_one_way_delay: %d" % self.avg_one_way_delay)
-        s.append("packet_loss: %1.4f" % self.packet_loss)
-        s.append("packet_reordering: %1.4f" % self.packet_reordering)
-        s.append("one_way_delay_variation: %s" % str(self.one_way_delay_variation))
-        s.append("}")
+        s = ["{from_isd_as: %s" % self.from_isd_as,
+             "to_isd_as: %s" % self.to_isd_as,
+             "avg_one_way_delay: %d" % self.avg_one_way_delay,
+             "packet_loss: %1.4f" % self.packet_loss,
+             "packet_reordering: %1.4f" % self.packet_reordering,
+             "one_way_delay_variation: %s" % str(self.one_way_delay_variation), "}"]
         return "\n".join(s)
