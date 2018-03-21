@@ -815,10 +815,14 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
                 metrics.avg_one_way_delay = float(element.data.decode())
             if element.type == b"pkt_reordering":
                 metrics.packet_reordering = float(element.data.decode())
-            if element.type == b"owd_variation_90":
-                metrics.one_way_delay_variation[90] = float(element.data.decode())
+            if element.type == b"variance":
+                metrics.variance = float(element.data.decode())
             if element.type == b"pkt_loss":
                 metrics.packet_loss = float(element.data.decode())
+            if element.type == b"percentile999":
+                metrics.percentile999 = float(element.data.decode())
+            if element.type == b"mean_normalized":
+                metrics.mean_normalized = float(element.data.decode())
         self.metrics[metrics.from_isd_as] = metrics
 
     @abstractmethod

@@ -8,7 +8,6 @@ from lib.packet.packet_base import Cerealizable
 
 
 class MetricsPCBExt(Cerealizable):
-
     NAME = "Metrics"
     P_CLS = P.MetricsPCBExt
 
@@ -16,7 +15,8 @@ class MetricsPCBExt(Cerealizable):
     def from_values(cls, metrics):
         p = cls.P_CLS.new_message(fromIsdAs=metrics.from_isd_as, toIsdAs=metrics.to_isd_as,
                                   avgOwd=metrics.avg_one_way_delay, pktReordering=metrics.packet_reordering,
-                                  owdVariation90=metrics.one_way_delay_variation[90], pktLoss=metrics.packet_loss)
+                                  variance=metrics.variance, pktLoss=metrics.packet_loss,
+                                  percentile999=metrics.percentile999, meanNormalized=metrics.mean_normalized)
         return cls(p)
 
     def from_isd_as(self):
@@ -31,9 +31,14 @@ class MetricsPCBExt(Cerealizable):
     def packet_reordering(self):
         return self.p.pktReordering
 
-    def one_way_delay_variation(self):
-        return self.p.owdVariation90
+    def variance(self):
+        return self.p.variance
+
+    def mean_normalized(self):
+        return self.p.meanNormalized
+
+    def percentile999(self):
+        return self.p.percentile999
 
     def packet_loss(self):
         return self.p.pktLoss
-

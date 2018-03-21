@@ -39,7 +39,8 @@ from lib.util import load_yaml_file
 from metric_server.constants import LAMBDA, MAX_INTERVAL, RECALCULATE_METRICS_INTERVAL_SECONDS, \
     TIME_RANGE_TO_KEEP_MEASUREMENTS
 from metric_server.lib.lib import get_timestamp_in_ms, remove_duplicates
-from metric_server.metrics.latency import calculate_one_way_delay, calculate_one_way_delay_variation
+from metric_server.metrics.latency import calculate_one_way_delay, calculate_one_way_delay_variation, \
+    calculate_variance, calculate_percentile999, calculate_normalized_mean
 from metric_server.metrics.packet_loss import calculate_packet_loss
 from metric_server.metrics.packet_reordering import calculate_packet_reordering
 from scion_elem.scion_elem import SCIONElement
@@ -156,8 +157,11 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                 self.aggregated_metrics[isd_as].avg_one_way_delay = calculate_one_way_delay(measurements)
                 self.aggregated_metrics[isd_as].packet_loss = calculate_packet_loss(measurements)
                 self.aggregated_metrics[isd_as].packet_reordering = calculate_packet_reordering(measurements)
-                variation = calculate_one_way_delay_variation(measurements)
-                self.aggregated_metrics[isd_as].one_way_delay_variation = variation
+                variance = calculate_variance(measurements)
+                self.aggregated_metrics[isd_as].variance = variance
+                self.aggregated_metrics[isd_as].percentile999 = calculate_percentile999(measurements)
+                self.aggregated_metrics[isd_as].mean_normalized = calculate_normalized_mean(measurements)
+
                 # logging.debug("avg owd is %d" % self.aggregated_metrics[isd_as].avg_one_way_delay)
                 # logging.debug("packet loss is %1.4f" % self.aggregated_metrics[isd_as].packet_loss)
                 # logging.debug("packet reordering is %1.4f" % self.aggregated_metrics[isd_as].packet_reordering)
@@ -198,9 +202,12 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                                                     data=str(metrics.avg_one_way_delay).encode()),
                            CtrlExtnData.from_values(type=b'pkt_reordering',
                                                     data=str(metrics.packet_reordering).encode()),
-                           CtrlExtnData.from_values(type=b'owd_variation_90',
-                                                    data=str(metrics.one_way_delay_variation[
-                                                                 90]).encode()),
+                           CtrlExtnData.from_values(type=b'mean_normalized',
+                                                    data=str(metrics.mean_normalized).encode()),
+                           CtrlExtnData.from_values(type=b'variance',
+                                                    data=str(metrics.variance).encode()),
+                           CtrlExtnData.from_values(type=b'percentile999',
+                                                    data=str(metrics.percentile999).encode()),
                            CtrlExtnData.from_values(type=b'pkt_loss',
                                                     data=str(metrics.packet_loss).encode())])), meta)
 
@@ -228,10 +235,12 @@ class One_Hop_Metric:
     def __init__(self, from_isd_as, to_isd_as):
         self.from_isd_as = from_isd_as
         self.to_isd_as = to_isd_as
-        self.avg_one_way_delay = -1
+        self.avg_one_way_delay = 0
         self.packet_loss = 0.0
         self.packet_reordering = 0.0
-        self.one_way_delay_variation = defaultdict(lambda: 0)
+        self.mean_normalized = 0.0
+        self.variance = 0.0
+        self.percentile999 = 0.0
 
     @classmethod
     def from_payload_metric(cls, payload):
@@ -240,7 +249,9 @@ class One_Hop_Metric:
         metrics.avg_one_way_delay = raw.avg_one_way_delay()
         metrics.packet_reordering = raw.packet_reordering()
         metrics.packet_loss = raw.packet_loss()
-        metrics.one_way_delay_variation = raw.one_way_delay_variation()
+        metrics.percentile999 = raw.percentile999()
+        metrics.mean_normalized = raw.mean_normalized()
+        metrics.variance = raw.variance()
         return metrics
 
     def __str__(self):
@@ -249,5 +260,7 @@ class One_Hop_Metric:
              "avg_one_way_delay: %d" % self.avg_one_way_delay,
              "packet_loss: %1.4f" % self.packet_loss,
              "packet_reordering: %1.4f" % self.packet_reordering,
-             "one_way_delay_variation: %s" % str(self.one_way_delay_variation), "}"]
+             "variance: %1.4f" % self.variance,
+             "percentile999: %1.4f" % self.percentile999,
+             "mean_normalized: %s" % str(self.mean_normalized), "}"]
         return "\n".join(s)
