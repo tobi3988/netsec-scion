@@ -1221,3 +1221,18 @@ class SCIONElement(object):
                 return path_entries[0].path()
         logging.warning("Unable to get path to %s from SCIOND.", isd_as)
         return None
+
+    def _get_paths_via_sciond(self, isd_as, flush=False):
+        flags = lib_sciond.PathRequestFlags(flush=flush)
+        start = time.time()
+        while time.time() - start < API_TOUT:
+            try:
+                path_entries = lib_sciond.get_paths(isd_as, flags=flags)
+            except lib_sciond.SCIONDLibError as e:
+                logging.error("Error during path lookup: %s" % e)
+                continue
+            if path_entries:
+                return path_entries
+        logging.warning("Unable to get path to %s from SCIOND.", isd_as)
+        return None
+

@@ -84,10 +84,10 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
 
     def send_measurements(self, isd_as):
         address = self.metric_servers[str(isd_as)][0]
-        path = self._get_path_via_sciond(isd_as)
+        path = self.get_one_hop_path(isd_as)
         while path is None:
             time.sleep(1)
-            path = self._get_path_via_sciond(isd_as)
+            path = self.get_one_hop_path(isd_as)
             logging.debug("waiting to get valid path")
         meta = self._build_meta(isd_as, HostAddrIPv4(address["Addr"]), port=int(address["L4Port"]),
                                 path=path.fwd_path())
@@ -101,6 +101,15 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                 meta)
             sequence_number += 1
             time.sleep(self._sampe_interval())
+
+    def get_one_hop_path(self, isd_as):
+        paths = self._get_paths_via_sciond(isd_as)
+        if paths is not None:
+            for path in paths:
+                logging.debug('path is %s' % str(path.path()))
+                if path.path().number_of_ifs() == 2:
+                    return path.path()
+        return None
 
     def _sampe_interval(self):
         interval = random.expovariate(LAMBDA)
@@ -128,7 +137,6 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         logging.debug("cpld is " + str(payload))
         logging.debug("meta is " + str(meta))
         self.add_one_hop_to_all_metrics(One_Hop_Metric.from_payload_metric(payload))
-
 
     def start_metric_calculations(self):
         threading.Thread(

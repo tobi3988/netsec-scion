@@ -52,6 +52,9 @@ class FwdPathMeta(Cerealizable):  # pragma: no cover
         for if_ in self.p.interfaces:
             yield PathInterface(if_)
 
+    def number_of_ifs(self):
+        return len(self.p.interfaces)
+
     def short_desc(self):
         if_str = ", ".join([if_.short_desc() for if_ in self.iter_ifs()])
         return "Interfaces: %s MTU: %d" % (if_str, self.p.mtu)
