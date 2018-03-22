@@ -21,3 +21,10 @@ def calculate_packet_loss(measurements):
             number_of_packets += number_of_missing_packets
         previous_packet = measurement
     return float(lost_packets) / float(number_of_packets)
+
+
+def calculate_packet_loss_for_path(metrics):
+    result = 1
+    for metric in metrics:
+        result *= (1 - metric.packet_loss)
+    return 1 - result

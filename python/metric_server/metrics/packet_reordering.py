@@ -11,3 +11,10 @@ def calculate_packet_reordering(measurements):
                 continue
             next_expected_sequence_number = measurement.sequence_number + 1
     return float(number_of_reordered_packets) / float(len(measurements))
+
+
+def calculate_packet_reordering_for_path(metrics):
+    result = 1
+    for metric in metrics:
+        result *= (1 - metric.packet_reordering)
+    return 1 - result
