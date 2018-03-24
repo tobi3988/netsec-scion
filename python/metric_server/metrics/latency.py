@@ -55,6 +55,7 @@ def calculate_percentile999(measurements):
     if len(measurements) < 2:
         return 0
     latencies = normalize_and_sort_measurements(measurements)
+    logging.debug('latencies are %s' %str(latencies))
     return percentile(latencies, 0.999)
 
 
@@ -63,6 +64,8 @@ def calculate_third_moment(metric):
 
 
 def calculate_total_skewness(variance, third_moment):
+    if variance == 0:
+        variance = 0.000000001
     return third_moment / float(variance ** (1.5))
 
 
@@ -75,10 +78,12 @@ def calculate_percentile999_for_path(metrics):
 
 
 def calculate_skewness(metric):
-    percentil = float(metric.percentil999)
-    mean = float(metric.normalized_mean)
-    return 6 * ((NORMALDIST999 - ((percentil - mean) / metric.variance)) / (1 - NORMALDIST999 ** 2))
+    percentil = float(metric.percentile999)
+    mean = float(metric.mean_normalized)
+    if metric.variance == 0:
+        metric.variance = 0.000000001
+    return 6 * ((NORMALDIST999 - ((percentil - mean) / metric.variance**0.5)) / (1 - NORMALDIST999 ** 2))
 
 
 def calculate_one_way_delay_for_path(metrics):
-    return mean(metric.one_way_delay for metric in metrics)
+    return sum(metric.avg_one_way_delay for metric in metrics)

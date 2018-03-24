@@ -40,9 +40,10 @@ from metric_server.constants import LAMBDA, MAX_INTERVAL, RECALCULATE_METRICS_IN
     TIME_RANGE_TO_KEEP_MEASUREMENTS
 from metric_server.lib.lib import get_timestamp_in_ms, remove_duplicates
 from metric_server.metrics.latency import calculate_one_way_delay, calculate_one_way_delay_variation, \
-    calculate_variance, calculate_percentile999, calculate_normalized_mean
-from metric_server.metrics.packet_loss import calculate_packet_loss
-from metric_server.metrics.packet_reordering import calculate_packet_reordering
+    calculate_variance, calculate_percentile999, calculate_normalized_mean, calculate_one_way_delay_for_path, \
+    calculate_percentile999_for_path
+from metric_server.metrics.packet_loss import calculate_packet_loss, calculate_packet_loss_for_path
+from metric_server.metrics.packet_reordering import calculate_packet_reordering, calculate_packet_reordering_for_path
 from scion_elem.scion_elem import SCIONElement
 
 
@@ -146,6 +147,20 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
 
     def calculate_metrics(self):
         while self.run_flag.is_set():
+            if str(self.topology.isd_as) == '1-10':
+                metrics = []
+
+                key = '1-10.1-19'
+                if key in self.all_aggregated_metrics.keys():
+                    metrics.append(self.all_aggregated_metrics[key])
+                key = '1-19.1-16'
+                if key in self.all_aggregated_metrics.keys():
+                    metrics.append(self.all_aggregated_metrics[key])
+                key = '1-16.1-13'
+                if key in self.all_aggregated_metrics.keys():
+                    metrics.append(self.all_aggregated_metrics[key])
+                if len(metrics) == 3:
+                    self.aggregate_all_metrics_for_path(metrics)
             streams_copy = {}
             self.clean_measurement_stream()
             with self.measurement_stream_lock:
@@ -212,7 +227,15 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                                                     data=str(metrics.packet_loss).encode())])), meta)
 
     def add_one_hop_to_all_metrics(self, metric):
-        self.all_aggregated_metrics[metric.from_isd_as + metric.to_isd_as] = metric
+        self.all_aggregated_metrics[metric.from_isd_as + '.' + metric.to_isd_as] = metric
+
+    def aggregate_all_metrics_for_path(self, metrics):
+        for metric in metrics:
+            logging.debug('metric is %s' % str(metric))
+        logging.debug('owd: %s' % calculate_one_way_delay_for_path(metrics))
+        logging.debug('delay variation is: %s' % calculate_percentile999_for_path(metrics))
+        logging.debug('packet loss is: %s' % calculate_packet_loss_for_path(metrics))
+        logging.debug('packet reordering is: %s' % calculate_packet_reordering_for_path(metrics))
 
 
 class Measurement:
