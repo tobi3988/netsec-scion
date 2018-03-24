@@ -240,7 +240,7 @@ class ConfigGenerator(object):
 
     def _write_trust_files(self, topo_dicts, cert_files):
         for topo_id, as_topo, base in _srv_iter(
-                topo_dicts, self.out_dir, common=True):
+            topo_dicts, self.out_dir, common=True):
             for path, value in cert_files[topo_id].items():
                 write_file(os.path.join(base, path), value)
 
@@ -250,7 +250,7 @@ class ConfigGenerator(object):
         """
         as_confs = {}
         for topo_id, as_topo, base in _srv_iter(
-                topo_dicts, self.out_dir, common=True):
+            topo_dicts, self.out_dir, common=True):
             as_confs.setdefault(topo_id, yaml.dump(
                 self._gen_as_conf(as_topo), default_flow_style=False))
             conf_file = os.path.join(base, AS_CONF_FILE)
@@ -686,7 +686,7 @@ class TopoGenerator(object):
 
     def _write_as_topos(self):
         for topo_id, as_topo, base in _srv_iter(
-                self.topo_dicts, self.out_dir, common=True):
+            self.topo_dicts, self.out_dir, common=True):
             path = os.path.join(base, TOPO_FILE)
             contents_json = json.dumps(self.topo_dicts[topo_id],
                                        default=_json_default, indent=2)
@@ -750,7 +750,7 @@ class PrometheusGenerator(object):
                 targets_path = os.path.join(base, self.PROM_DIR, self.TARGET_FILES[ele_type])
                 targets_paths[self.JOB_NAMES[ele_type]].append(targets_path)
                 as_local_targets_path[self.JOB_NAMES[ele_type]] = [targets_path]
-                self._write_target_file(base, target_list, ele_type)
+                self._write_target_file(base, target_list, ele_type, topo_id)
             self._write_config_file(os.path.join(base, PROM_FILE), as_local_targets_path)
         self._write_config_file(os.path.join(self.out_dir, PROM_FILE), targets_paths)
 
@@ -773,10 +773,12 @@ class PrometheusGenerator(object):
         }
         write_file(config_path, yaml.dump(config, default_flow_style=False))
 
-    def _write_target_file(self, base_path, target_addrs, ele_type):
+    def _write_target_file(self, base_path, target_addrs, ele_type, topo_id):
         targets_path = os.path.join(base_path, self.PROM_DIR, self.TARGET_FILES[ele_type])
+        ms_path = os.path.join(base_path, "ms" +str(topo_id._isd) + "-" + str(topo_id._as) + "-1", self.TARGET_FILES[ele_type])
         target_config = [{'targets': target_addrs}]
         write_file(targets_path, yaml.dump(target_config, default_flow_style=False))
+        write_file(ms_path, yaml.dump(target_config, default_flow_style=False))
 
 
 class SupervisorGenerator(object):
@@ -1153,6 +1155,7 @@ class AddressProxy(yaml.YAMLObject):
 
 class IFIDGenerator(object):
     """Generates unique interface IDs"""
+
     def __init__(self):
         self._ifids = set()
 
