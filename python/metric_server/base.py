@@ -26,19 +26,17 @@ from collections import defaultdict
 
 import copy
 
-import lib.app.sciond as lib_sciond
 
 from lib.defines import METRIC_SERVICE
 from lib.packet.ctrl_pld import CtrlPayload
 from lib.packet.host_addr import HostAddrIPv4
 from lib.packet.ctrl_extn_data import CtrlExtnDataList, CtrlExtnData
-from lib.packet.scion_addr import ISD_AS
 from lib.thread import thread_safety_net
 from lib.types import PayloadClass
 from lib.util import load_yaml_file
 from metric_server.constants import LAMBDA, MAX_INTERVAL, RECALCULATE_METRICS_INTERVAL_SECONDS, \
-    TIME_RANGE_TO_KEEP_MEASUREMENTS
-from metric_server.lib.lib import get_timestamp_in_ms, remove_duplicates
+    TIME_RANGE_TO_KEEP_MEASUREMENTS, PACKETS_PER_SAMPLE
+from metric_server.lib.lib import get_timestamp_in_ms, remove_duplicates, setup_logger
 from metric_server.metrics.latency import calculate_one_way_delay, calculate_one_way_delay_variation, \
     calculate_variance, calculate_percentile999, calculate_normalized_mean, calculate_one_way_delay_for_path, \
     calculate_percentile999_for_path
@@ -66,6 +64,8 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         self.aggregated_metrics = defaultdict(lambda: One_Hop_Metric(None, str(self.topology.isd_as)))
         self.all_aggregated_metrics = {}
         self.measurement_stream_lock = threading.Lock()
+        self.metric_logger = setup_logger("metric logger", "logs/metrics.csv")
+        self.measurement_logger = setup_logger("measurement logger", "logs/measurments.csv")
 
     def run(self):
         """
@@ -102,7 +102,8 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                                                                              data=str(sequence_number).encode())])),
                 meta)
             sequence_number += 1
-            time.sleep(self._sampe_interval())
+            if (sequence_number % PACKETS_PER_SAMPLE) == 0:
+                time.sleep(self._sampe_interval())
 
     def get_one_hop_path(self, isd_as):
         paths = self._get_paths_via_sciond(isd_as)
@@ -132,6 +133,9 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
             if element.type == b"seq":
                 sequence_number = int(element.data.decode())
         measurement = Measurement(sequence_number, sent_at, received_at)
+        # self.measurement_logger.info('%s,%s,%s,%s,%s,%s' % (str(get_timestamp_in_ms()), str(sequence_number),
+        #                                                     str(sent_at), str(received_at), str(meta.ia),
+        #                                                     str(self.topology.isd_as)))
         with self.measurement_stream_lock:
             self.measurement_streams[str(meta.ia)].append(measurement)
 
@@ -183,6 +187,12 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                 # logging.debug("delay variation is %s" % str(self.aggregated_metrics[isd_as].one_way_delay_variation))
                 self.send_metrics_to_beacon_server(isd_as)
                 self.add_one_hop_to_all_metrics(self.aggregated_metrics[isd_as])
+                metrics = self.aggregated_metrics[isd_as]
+                self.metric_logger.info("%s,%s,%s,%s,%s,%s,%s,%s,%s" % (str(get_timestamp_in_ms()),
+                                        str(metrics.avg_one_way_delay), str(metrics.variance),
+                                        str(metrics.mean_normalized), str(metrics.percentile999),
+                                        str(metrics.packet_loss), str(metrics.packet_reordering),
+                                        str(metrics.from_isd_as), str(metrics.to_isd_as)))
             time.sleep(RECALCULATE_METRICS_INTERVAL_SECONDS)
 
     def clean_measurement_stream(self):
