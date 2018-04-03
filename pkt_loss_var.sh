@@ -2,7 +2,7 @@
 
 echo "start experiment variational packet loss"
 tc qdisc del dev lo root netem
-tc qdisc add dev lo root netem delay 50ms
+tc qdisc add dev lo root netem loss 0.5
 su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 rm -f logs/metrics.csv
@@ -11,17 +11,10 @@ su -c 'cd ${SC} && ./scion.sh start' - parallels
 
 sleep $2
 
-for i in {0.5..2.0..0.05}
+for i in 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 1.9 1.8 1.7 1.6 1.5 1.4 1.3 1.2 1.1 1.0 0.9 0.8 0.7 0.6 0.5
 do
     tc qdisc change dev lo root netem loss ${i}%
-    echo $(($(date +%s%N)/1000000)),$(($i*3)) >> network.log
-    sleep $1
-done
-
-for i in {2.0..0.5..0.05}
-do
-    tc qdisc change dev lo root netem loss ${i}%
-    echo $(($(date +%s%N)/1000000)),$(($i*3)) >> network.log
+    echo $(($(date +%s%N)/1000000)),$i >> network.log
     sleep $1
 done
 

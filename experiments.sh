@@ -69,3 +69,5 @@ cp logs/metrics.csv experiments/logs/reordering/
 ##########################################################
 
 avg_owd_var.sh $CHANGERATE $WARMUPTIME
+
+pkt_loss_var.sh $CHANGERATE $WARMUPTIME
