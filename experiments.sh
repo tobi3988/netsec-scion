@@ -1,5 +1,7 @@
 #!/bin/bash
 DURATION=20m
+WARMUPTIME=10m
+CHANGERATE=6s
 
 ##########################################################
 echo "start experiment constant avg owd----------------------------------"
@@ -66,4 +68,4 @@ cp logs/metrics.csv experiments/logs/reordering/
 
 ##########################################################
 
-
+avg_owd_var.sh $CHANGERATE $WARMUPTIME
