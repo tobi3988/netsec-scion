@@ -175,6 +175,8 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         self.local_rev_cache = ExpiringDict(1000, HASHTREE_EPOCH_TIME +
                                             HASHTREE_EPOCH_TOLERANCE)
         self._rev_seg_lock = RLock()
+        self.overhead_handle_logger = setup_logger("overhead logger handle", "logs/overhead_handle.csv")
+        self.overhead_propagate_logger = setup_logger("overhead logger propagate", "logs/overhead_propagate.csv")
 
     def _init_hash_tree(self):
         ifs = list(self.ifid2br.keys())
@@ -196,6 +198,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         :param pcb: path segment.
         :type pcb: PathSegment
         """
+        start = get_timestamp_in_micros()
         propagated_pcbs = defaultdict(list)
         prop_cnt = 0
         for intf in self.topology.child_interfaces:
@@ -210,6 +213,9 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             prop_cnt += 1
         if self._labels:
             BEACONS_PROPAGATED.labels(**self._labels, type="down").inc(prop_cnt)
+        end = get_timestamp_in_micros()
+        duration = end - start
+        self.overhead_propagate_logger.info('%s' % str(duration))
         return propagated_pcbs
 
     def _mk_prop_pcb_meta(self, pcb, dst_ia, egress_if):
@@ -275,6 +281,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         """
         Handles pcbs received from the network.
         """
+        start = get_timestamp_in_micros()
         pcb = cpld.union
         assert isinstance(pcb, PCB), type(pcb)
         pcb = pcb.pseg()
@@ -292,6 +299,10 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             return
         seg_meta = PathSegMeta(pcb, self.continue_seg_processing, meta)
         self._process_path_seg(seg_meta)
+        end = get_timestamp_in_micros()
+        duration = end - start
+        self.overhead_handle_logger.info('%s' % str(duration))
+
 
     def continue_seg_processing(self, seg_meta):
         """
@@ -782,3 +793,19 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             SEGMENTS_REGISTERED.labels(**self._labels, type=type_).inc(0)
         REVOCATIONS_ISSUED.labels(**self._labels).inc(0)
         IS_MASTER.labels(**self._labels).set(0)
+
+def get_timestamp_in_micros():
+    return int(round(time.time() * 1000000))
+
+
+def setup_logger(name, log_file, level=logging.INFO):
+    """Function setup as many loggers as you want"""
+    formatter = logging.Formatter('%(message)s')
+    handler = logging.FileHandler(log_file)
+    handler.setFormatter(formatter)
+
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.addHandler(handler)
+
+    return logger
