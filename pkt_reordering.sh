@@ -6,6 +6,7 @@ tc qdisc add dev lo root netem delay 10ms reorder 25% 50%
 su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 rm -f logs/metrics.csv
+rm -f logs/multipath.csv
 rm -f network.log
 su -c 'cd ${SC} && ./scion.sh start' - parallels
 

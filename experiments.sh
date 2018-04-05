@@ -10,6 +10,7 @@ tc qdisc add dev lo root netem delay 100ms
 su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 rm -f logs/metrics.csv
+rm -f logs/multipath.csv
 su -c 'cd ${SC} && ./scion.sh start' - parallels
 
 sleep $DURATION
@@ -27,6 +28,7 @@ tc qdisc add dev lo root netem loss 1.01017%
 su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 rm -f logs/metrics.csv
+rm -f logs/multipath.csv
 su -c 'cd ${SC} && ./scion.sh start' - parallels
 
 sleep $DURATION
@@ -44,6 +46,7 @@ tc qdisc add dev lo root netem delay 100ms 15ms
 su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 rm -f logs/metrics.csv
+rm -f logs/multipath.csv
 su -c 'cd ${SC} && ./scion.sh start' - parallels
 
 sleep $DURATION
@@ -61,6 +64,7 @@ tc qdisc add dev lo root netem delay 20ms reorder 25% 50%
 su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 rm -f logs/metrics.csv
+rm -f logs/multipath.csv
 su -c 'cd ${SC} && ./scion.sh start' - parallels
 
 sleep $DURATION
