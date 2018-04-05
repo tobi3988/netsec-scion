@@ -17,6 +17,7 @@ su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 mkdir -p experiments/logs/avgowd
 cp logs/metrics.csv experiments/logs/avgowd/
+cp logs/multipath.csv experiments/logs/avgowd/
 
 ##########################################################
 
@@ -33,6 +34,7 @@ su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 mkdir -p experiments/logs/loss
 cp logs/metrics.csv experiments/logs/loss/
+cp logs/multipath.csv experiments/logs/loss/
 
 ##########################################################
 
@@ -49,6 +51,7 @@ su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 mkdir -p experiments/logs/variation
 cp logs/metrics.csv experiments/logs/variation/
+cp logs/multipath.csv experiments/logs/variation/
 
 ##########################################################
 
@@ -65,6 +68,7 @@ su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 mkdir -p experiments/logs/reordering
 cp logs/metrics.csv experiments/logs/reordering/
+cp logs/multipath.csv experiments/logs/reordering/
 
 ##########################################################
 
@@ -73,3 +77,5 @@ avg_owd_var.sh $CHANGERATE $WARMUPTIME
 pkt_loss_var.sh $CHANGERATE $WARMUPTIME
 
 pkt_reordering.sh 20s $WARMUPTIME
+
+tc qdisc del dev lo root netem

@@ -29,4 +29,5 @@ su -c 'cd ${SC} && ./scion.sh stop' - parallels
 
 mkdir -p experiments/logs/variation_var
 cp logs/metrics.csv experiments/logs/variation_var/
+cp logs/multipath.csv experiments/logs/variation_var/
 cp network.log experiments/logs/variation_var/

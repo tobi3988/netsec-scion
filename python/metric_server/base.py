@@ -66,6 +66,7 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         self.measurement_stream_lock = threading.Lock()
         self.metric_logger = setup_logger("metric logger", "logs/metrics.csv")
         self.measurement_logger = setup_logger("measurement logger", "logs/measurments.csv")
+        self.multipath_logger = setup_logger("multipath logger", "logs/multipath.csv")
 
     def run(self):
         """
@@ -242,10 +243,15 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
     def aggregate_all_metrics_for_path(self, metrics):
         for metric in metrics:
             logging.debug('metric is %s' % str(metric))
-        logging.debug('owd: %s' % calculate_one_way_delay_for_path(metrics))
-        logging.debug('delay variation is: %s' % calculate_percentile999_for_path(metrics))
-        logging.debug('packet loss is: %s' % calculate_packet_loss_for_path(metrics))
-        logging.debug('packet reordering is: %s' % calculate_packet_reordering_for_path(metrics))
+        owd = calculate_one_way_delay_for_path(metrics)
+        logging.debug('owd: %s' % owd)
+        percentile999 = calculate_percentile999_for_path(metrics)
+        logging.debug('delay variation is: %s' % percentile999)
+        packet_loss = calculate_packet_loss_for_path(metrics)
+        logging.debug('packet loss is: %s' % packet_loss)
+        packet_reordering = calculate_packet_reordering_for_path(metrics)
+        logging.debug('packet reordering is: %s' % packet_reordering)
+        self.multipath_logger.info('%s,%s,%s,%s,%s'% (get_timestamp_in_ms(), owd, percentile999, packet_loss, packet_reordering))
 
 
 class Measurement:
