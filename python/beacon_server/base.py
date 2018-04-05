@@ -88,6 +88,7 @@ from lib.zk.errors import ZkNoConnection
 from lib.zk.id import ZkID
 from lib.zk.zk import ZK_LOCK_SUCCESS, Zookeeper
 from metric_server.base import One_Hop_Metric
+from metric_server.lib.lib import setup_logger
 from scion_elem.scion_elem import SCIONElement
 
 # Exported metrics.
@@ -119,6 +120,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
     # Interval to checked for timed out interfaces.
     IF_TIMEOUT_INTERVAL = 1
 
+
     def __init__(self, server_id, conf_dir, prom_export=None):
         """
         :param str server_id: server identifier.
@@ -132,7 +134,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         self.signing_key = get_sig_key(self.conf_dir)
         self.of_gen_key = kdf(self.config.master_as_key, b"Derive OF Key")
         self.hashtree_gen_key = kdf(
-                            self.config.master_as_key, b"Derive hashtree Key")
+            self.config.master_as_key, b"Derive hashtree Key")
         logging.info(self.config.__dict__)
         # Amount of time units a HOF is valid (time unit is EXP_TIME_UNIT).
         self.hof_exp_time = int(self.config.segment_ttl / EXP_TIME_UNIT)
@@ -179,6 +181,8 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         self._rev_seg_lock = RLock()
 
         self.metrics = defaultdict(lambda: One_Hop_Metric(None, None))
+        self.overhead_handle_logger = setup_logger("overhead logger handle", "logs/overhead_handle.csv")
+        self.overhead_propagate_logger = setup_logger("overhead logger propagate", "logs/overhead_propagate.csv")
 
     def _init_hash_tree(self):
         ifs = list(self.ifid2br.keys())
@@ -200,6 +204,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         :param pcb: path segment.
         :type pcb: PathSegment
         """
+        start = get_timestamp_in_micros()
         propagated_pcbs = defaultdict(list)
         prop_cnt = 0
         for intf in self.topology.child_interfaces:
@@ -214,6 +219,9 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             prop_cnt += 1
         if self._labels:
             BEACONS_PROPAGATED.labels(**self._labels, type="down").inc(prop_cnt)
+        end = get_timestamp_in_micros()
+        duration = end - start
+        self.overhead_propagate_logger.info('%s' % str(duration))
         return propagated_pcbs
 
     def _mk_prop_pcb_meta(self, pcb, dst_ia, egress_if):
@@ -291,6 +299,7 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
         """
         Handles pcbs received from the network.
         """
+        start = get_timestamp_in_micros()
         pcb = cpld.union
         metrics_to_forward = []
         assert isinstance(pcb, PCB), type(pcb)
@@ -311,6 +320,9 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
             return
         seg_meta = PathSegMeta(pcb, self.continue_seg_processing, meta)
         self._process_path_seg(seg_meta)
+        end = get_timestamp_in_micros()
+        duration = end - start
+        self.overhead_handle_logger.info('%s' % str(duration))
         self.forward_metrics_to_metric_server(metrics_to_forward)
 
     def continue_seg_processing(self, seg_meta):
@@ -843,3 +855,6 @@ class BeaconServer(SCIONElement, metaclass=ABCMeta):
                                         path=path.fwd_path())
                 self.send_meta(CtrlPayload(MetricsPCBExt.from_proto(metric.p)), meta)
 
+
+def get_timestamp_in_micros():
+    return int(round(time.time() * 1000000))
