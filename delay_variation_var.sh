@@ -3,12 +3,12 @@
 echo "start experiment variational one way packet delay variation"
 tc qdisc del dev lo root netem
 tc qdisc add dev lo root netem delay 100ms 1ms
-su -c 'cd ${SC} && ./scion.sh stop' - parallels
+su -c 'cd ${SC} && ./scion.sh stop' - ubuntu
 
 rm -f logs/metrics.csv
 rm -f logs/multipath.csv
 rm -f network.log
-su -c 'cd ${SC} && ./scion.sh start' - parallels
+su -c 'cd ${SC} && ./scion.sh start' - ubuntu
 
 sleep $2
 
@@ -26,7 +26,7 @@ do
     sleep $1
 done
 
-su -c 'cd ${SC} && ./scion.sh stop' - parallels
+su -c 'cd ${SC} && ./scion.sh stop' - ubuntu
 
 mkdir -p experiments/logs/variation_var
 cp logs/metrics.csv experiments/logs/variation_var/
