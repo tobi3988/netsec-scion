@@ -10,24 +10,6 @@ ASes:
     beacon_servers: 1
     certificate_servers: 3
     path_servers: 3
-  1-12:
-    core: true
-    zookeepers:
-      1:
-        manage: true
-        clientPort: 4000
-        leaderPort: 4001
-        electionPort: 4002
-      2:
-        manage: true
-        clientPort: 4003
-        leaderPort: 4004
-        electionPort: 4005
-      3:
-        manage: true
-        clientPort: 4006
-        leaderPort: 4007
-        electionPort: 4008
   1-13:
     core: true
     beacon_servers: 2
@@ -37,7 +19,7 @@ ASes:
     cert_issuer: 1-11
     certificate_servers: 3
   1-15:
-    cert_issuer: 1-12
+    cert_issuer: 1-11
   1-16:
     beacon_servers: 3
     certificate_servers: 3
@@ -46,7 +28,7 @@ ASes:
     cert_issuer: 1-11
     mtu: 1450
   1-18:
-    cert_issuer: 1-12
+    cert_issuer: 1-11
   1-19:
     path_servers: 2
     certificate_servers: 3
@@ -87,13 +69,9 @@ CAs:
     ISD: 2
     commonName: CA2-3
 links:
-  - {a: 1-11, b: 1-12, ltype: CORE}
   - {a: 1-11, b: 1-13, ltype: CORE}
   - {a: 1-11, b: 2-21, ltype: CORE}
   - {a: 1-11, b: 1-14, ltype: PARENT}
-  - {a: 1-12, b: 1-13, ltype: CORE}
-  - {a: 1-12, b: 2-22, ltype: CORE, mtu: 1400}
-  - {a: 1-12, b: 1-15, ltype: PARENT}
   - {a: 1-13, b: 1-16, ltype: PARENT}
   - {a: 1-14, b: 1-15, ltype: PEER}
   - {a: 1-14, b: 2-23, ltype: PEER}

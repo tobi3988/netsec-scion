@@ -1,7 +1,7 @@
 #!/bin/bash
 DURATION=20m
 WARMUPTIME=10m
-CHANGERATE=6s
+CHANGERATE=1s
 
 ##########################################################
 echo "start experiment constant avg owd----------------------------------"
@@ -76,10 +76,12 @@ cp logs/multipath.csv experiments/logs/reordering/
 
 ##########################################################
 
-avg_owd_var.sh $CHANGERATE $WARMUPTIME
+sh ./avg_owd_var.sh 6s $WARMUPTIME #100
 
-pkt_loss_var.sh $CHANGERATE $WARMUPTIME
+sh ./pkt_loss_var.sh 20s $WARMUPTIME #30
 
-pkt_reordering.sh 20s $WARMUPTIME
+sh ./pkt_reordering.sh 12s $WARMUPTIME #50
+
+sh ./delay_variation_var.sh 12s $WARMUPTIME #50
 
 tc qdisc del dev lo root netem
