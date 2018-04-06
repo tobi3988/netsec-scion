@@ -1,6 +1,6 @@
 #!/bin/bash
-DURATION=20m
-WARMUPTIME=10m
+DURATION=30s
+WARMUPTIME=10s
 CHANGERATE=1s
 
 ##########################################################
@@ -76,12 +76,12 @@ cp logs/multipath.csv experiments/logs/reordering/
 
 ##########################################################
 
-sh ./avg_owd_var.sh 6s $WARMUPTIME #100
+sh ./avg_owd_var.sh 1s $WARMUPTIME #100
 
-sh ./pkt_loss_var.sh 20s $WARMUPTIME #30
+sh ./pkt_loss_var.sh 1s $WARMUPTIME #30
 
-sh ./pkt_reordering.sh 12s $WARMUPTIME #50
+sh ./pkt_reordering.sh 1s $WARMUPTIME #50
 
-sh ./delay_variation_var.sh 12s $WARMUPTIME #50
+sh ./delay_variation_var.sh 1s $WARMUPTIME #50
 
 tc qdisc del dev lo root netem
