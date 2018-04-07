@@ -60,7 +60,7 @@ cp logs/multipath.csv experiments/logs/variation/
 
 echo "start experiment constant packet reordering------------------------------"
 tc qdisc del dev lo root netem
-tc qdisc add dev lo root netem delay 20ms reorder 25% 50%
+tc qdisc add dev lo root netem delay 20ms reorder 5.556% 50%
 su -c 'cd ${SC} && ./scion.sh stop' - ubuntu
 
 rm -f logs/metrics.csv
