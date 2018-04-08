@@ -15,14 +15,14 @@ sleep $2
 for i in {1..25}
 do
     tc qdisc change dev lo root netem delay 100ms ${i}ms
-    echo $(($(date +%s%N)/1000000)),$i*3 >> network.log
+    echo $(($(date +%s%N)/1000000)),${i} >> network.log
     sleep $1
 done
 
 for i in {24..1}
 do
     tc qdisc change dev lo root netem delay 100ms ${i}ms
-    echo $(($(date +%s%N)/1000000)),$i >> network.log
+    echo $(($(date +%s%N)/1000000)),${i} >> network.log
     sleep $1
 done
 
