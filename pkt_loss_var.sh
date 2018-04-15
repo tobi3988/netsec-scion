@@ -2,7 +2,7 @@
 
 echo "start experiment variational packet loss"
 tc qdisc del dev lo root netem
-tc qdisc add dev lo root netem loss 0.5
+tc qdisc add dev lo root netem loss 0.5%
 su -c 'cd ${SC} && ./scion.sh stop' - ubuntu
 
 rm -f logs/metrics.csv
