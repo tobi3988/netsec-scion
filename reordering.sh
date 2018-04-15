@@ -7,7 +7,7 @@ CHANGERATE=1s
 
 echo "start experiment constant packet reordering------------------------------"
 tc qdisc del dev lo root netem
-tc qdisc add dev lo root netem delay 100ms reorder 9.14397% 50%
+tc qdisc add dev lo root netem delay 50ms reorder 25% 50%
 su -c 'cd ${SC} && ./scion.sh stop' - ubuntu
 
 rm -f logs/metrics.csv
