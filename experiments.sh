@@ -78,7 +78,7 @@ cp logs/multipath.csv experiments/logs/reordering/
 
 sh ./avg_owd_var.sh 12s $WARMUPTIME #100
 
-sh ./pkt_loss_var.sh 40ss $WARMUPTIME #30
+sh ./pkt_loss_var.sh 40s $WARMUPTIME #30
 
 sh ./pkt_reordering.sh 24s $WARMUPTIME #50
 
