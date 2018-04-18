@@ -55,7 +55,6 @@ def calculate_percentile999(measurements):
     if len(measurements) < 2:
         return 0
     latencies = normalize_and_sort_measurements(measurements)
-    logging.debug('latencies are %s' %str(latencies))
     return percentile(latencies, 0.999)
 
 
