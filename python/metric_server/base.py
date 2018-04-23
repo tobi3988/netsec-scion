@@ -25,7 +25,7 @@ import time
 from collections import defaultdict
 
 import copy
-
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from lib.defines import METRIC_SERVICE
 from lib.packet.ctrl_pld import CtrlPayload
@@ -34,6 +34,7 @@ from lib.packet.ctrl_extn_data import CtrlExtnDataList, CtrlExtnData
 from lib.thread import thread_safety_net
 from lib.types import PayloadClass
 from lib.util import load_yaml_file
+from metric_server.alto.AltoServer import AltoServer
 from metric_server.constants import LAMBDA, MAX_INTERVAL, RECALCULATE_METRICS_INTERVAL_SECONDS, \
     TIME_RANGE_TO_KEEP_MEASUREMENTS, PACKETS_PER_SAMPLE
 from metric_server.lib.lib import get_timestamp_in_ms, remove_duplicates, setup_logger
@@ -77,6 +78,7 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         for interface in self.topology.parent_interfaces:
             self.start_measurements_for_interface(interface)
         self.start_metric_calculations()
+        self.start_alto_server()
         super().run()
 
     def start_measurements_for_interface(self, interface):
@@ -84,6 +86,20 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         threading.Thread(
             target=thread_safety_net, args=(self.send_measurements, isd_as),
             name="MS.measure_" + str(isd_as), daemon=True).start()
+
+    def start_alto_server(self):
+        logging.debug('start alto thread')
+        threading.Thread(
+            target=thread_safety_net, args=(self.run_alto,),
+            name="MS.alto", daemon=True).start()
+
+    def run_alto(self):
+        port = self._port + 1100
+        server_address = ('', port)
+        logging.info('start alto server on port: %s' % str(port))
+        AltoServer.metric_server = self
+        httpd = HTTPServer(server_address, AltoServer)
+        httpd.serve_forever()
 
     def send_measurements(self, isd_as):
         address = self.metric_servers[str(isd_as)][0]
@@ -190,10 +206,14 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
                 self.add_one_hop_to_all_metrics(self.aggregated_metrics[isd_as])
                 metrics = self.aggregated_metrics[isd_as]
                 self.metric_logger.info("%s,%s,%s,%s,%s,%s,%s,%s,%s" % (str(get_timestamp_in_ms()),
-                                        str(metrics.avg_one_way_delay), str(metrics.variance),
-                                        str(metrics.mean_normalized), str(metrics.percentile999),
-                                        str(metrics.packet_loss), str(metrics.packet_reordering),
-                                        str(metrics.from_isd_as), str(metrics.to_isd_as)))
+                                                                        str(metrics.avg_one_way_delay),
+                                                                        str(metrics.variance),
+                                                                        str(metrics.mean_normalized),
+                                                                        str(metrics.percentile999),
+                                                                        str(metrics.packet_loss),
+                                                                        str(metrics.packet_reordering),
+                                                                        str(metrics.from_isd_as),
+                                                                        str(metrics.to_isd_as)))
             time.sleep(RECALCULATE_METRICS_INTERVAL_SECONDS)
 
     def clean_measurement_stream(self):
@@ -251,8 +271,27 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         logging.debug('packet loss is: %s' % packet_loss)
         packet_reordering = calculate_packet_reordering_for_path(metrics)
         logging.debug('packet reordering is: %s' % packet_reordering)
-        self.multipath_logger.info('%s,%s,%s,%s,%s'% (get_timestamp_in_ms(), owd, percentile999, packet_loss, packet_reordering))
+        self.multipath_logger.info(
+            '%s,%s,%s,%s,%s' % (get_timestamp_in_ms(), owd, percentile999, packet_loss, packet_reordering))
+        return {'owd': owd, 'percentile': percentile999, 'loss': packet_loss, 'reordering': packet_reordering}
 
+    def get_metrics_for_path(self, path):
+        isd_ases = path.split('.')
+        index = 0
+        metrics = []
+        if str(self.topology.isd_as) != isd_ases[0]:
+            return None
+        while index < len(isd_ases)-1:
+            key = isd_ases[index] + '.' + isd_ases[index + 1]
+            if key in self.all_aggregated_metrics.keys():
+                metrics.append(self.all_aggregated_metrics[key])
+            else:
+                metrics = []
+                break
+            index += 1
+        if len(metrics) > 0:
+            return self.aggregate_all_metrics_for_path(metrics)
+        return None
 
 class Measurement:
     def __init__(self, sequence_number, sent_at, received_at):
