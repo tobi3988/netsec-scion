@@ -279,8 +279,6 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
         isd_ases = path.split('.')
         index = 0
         metrics = []
-        if str(self.topology.isd_as) != isd_ases[0]:
-            return None
         while index < len(isd_ases)-1:
             key = isd_ases[index] + '.' + isd_ases[index + 1]
             if key in self.all_aggregated_metrics.keys():
@@ -291,6 +289,7 @@ class MetricServer(SCIONElement, metaclass=ABCMeta):
             index += 1
         if len(metrics) > 0:
             return self.aggregate_all_metrics_for_path(metrics)
+        logging.debug('metrics are empty')
         return None
 
 class Measurement:
